@@ -1,0 +1,466 @@
+local ADDON, ns = ...
+
+local Collector = {}
+ns.Collector = Collector
+
+-- Whitelist of Epic Battleground *instance* map ids — the service collects
+-- ONLY these. Mirror of the server's integrity.EBG_MAP_NAMES; if Blizzard
+-- ships a new Epic BG, BOTH tables need the new id. Legacy ids 1334/1478
+-- are deliberately absent: a modern 12.x client never produces them, they
+-- only exist in historical DB rows.
+--
+-- ns-level (not file-local) on purpose: Collector gates the snapshot with
+-- it and Main.lua gates the PVP_MATCH_COMPLETE handler — one source of
+-- truth, no per-file copies to drift apart.
+ns.EBG_INSTANCE_IDS = {
+    [30]   = true,  -- Альтеракская долина
+    [628]  = true,  -- Остров Завоеваний
+    [1191] = true,  -- Ашран
+    [2118] = true,  -- Битва за озеро Ледяных Оков
+    [2197] = true,  -- Месть Коррака (сезонный Альтерак)
+    [2799] = true,  -- Зубец убийцы (Deephaul Ravine)
+}
+
+function ns.IsEBGInstanceID(id)
+    return id ~= nil and ns.EBG_INSTANCE_IDS[id] == true
+end
+
+-- Match context populated on PVP_MATCH_ACTIVE, finalised on PVP_MATCH_COMPLETE.
+local ctx = {}
+
+-- Diagnostic ring buffer (PremadeIQ_DB.collectorLog) — same pattern as
+-- PremadeAlert's alertLog. Records gate decisions (skipped matches, nil
+-- instance ids) so a silently-dropped match is reconstructable from
+-- SavedVariables instead of depending on the player watching chat.
+local function dbg(line)
+    local db = ns.Database and ns.Database.db
+    if not db then return end
+    db.collectorLog = db.collectorLog or {}
+    db.collectorLog[#db.collectorLog + 1] = date("%H:%M:%S") .. " " .. line
+    while #db.collectorLog > 50 do table.remove(db.collectorLog, 1) end
+    if ns.Database.GetSetting and ns.Database:GetSetting("debug") then
+        print("|cff33ff99PremadeIQ|r |cff888888" .. line .. "|r")
+    end
+end
+
+-- Mid-match snapshot cadence. Long Epic BGs swap players in/out before
+-- the final scoreboard, so we sample periodically to (a) catch metrics
+-- for players who leave mid-match and (b) build a rough timeline of
+-- damage/heal/deaths progression. 300s = 5 min picks up most swaps
+-- without flooding storage on hour-long stall-wars (~18 snapshots).
+--
+-- DISABLED in 0.8.2: retail 12.0.x marks ALL live scoreboard data
+-- (guid included) as secret values during an active match. The Lua
+-- serializer drops secret strings from SavedVariables outright, so
+-- snapshots arrive at the server with no guid and zeroed numbers —
+-- useless for off-board metric recovery. The code is kept in place
+-- for when we wire an alternative source (combat log parser, or a
+-- secure-context hook). Setting interval to 0 disables the ticker.
+local MID_SNAPSHOT_INTERVAL = 0
+
+function Collector:OnMatchActive()
+    -- Stop any leftover ticker from a previous match that ended uncleanly
+    -- (DC, /reload). Ticker holds a closure on stale ctx — leaking it would
+    -- write snapshots for the new match using the prior match's startedAt.
+    if ctx.snapshotTicker then
+        ctx.snapshotTicker:Cancel()
+        ctx.snapshotTicker = nil
+    end
+    -- Instance map id (GetInstanceInfo, 8th return) is the ONLY id space we
+    -- use — it's what the server whitelists. The old fallback to
+    -- C_Map.GetBestMapForUnit (UiMapID — a DIFFERENT id space) silently fed
+    -- the server ids it could never recognise and got ~3% of real Epics
+    -- quarantined as non_ebg_map (prod: uiMap 91/169/113/572/2397 rows with
+    -- 40-player teams). PVP_MATCH_ACTIVE fires after the loading screen, so
+    -- GetInstanceInfo is expected to be valid here.
+    local instanceMapID = select(8, GetInstanceInfo())
+    ctx = {
+        startedAt  = time(),
+        instanceMapID = instanceMapID,
+        isEBG      = ns.IsEBGInstanceID(instanceMapID),
+        mapName    = GetRealZoneText(),
+        -- Bracket / type (best-effort across Midnight API variants)
+        isRated    = (C_PvP.IsRatedBattleground and C_PvP.IsRatedBattleground()) or false,
+        isBlitz    = (C_PvP.IsSoloRBG and C_PvP.IsSoloRBG())
+                      or (C_PvP.IsInBrawl and C_PvP.IsInBrawl()) or false,
+        isEpic     = (C_PvP.IsBattlegroundEnlistmentBonus and C_PvP.IsBattlegroundEnlistmentBonus()) or nil,
+        matchType  = (C_PvP.GetCurrentMatchType and C_PvP.GetCurrentMatchType()) or nil,
+        -- Premade detection: lock the party GUIDs we entered with
+        premadeGUIDs = {},
+        -- Mid-match snapshots {takenAt, players: [{guid, dmg, heal, kb, deaths, objective, faction}]}
+        snapshots  = {},
+    }
+    -- Everyone in our party/raid at match start = presumed premade
+    local n = GetNumGroupMembers() or 0
+    if n > 0 then
+        local unitPrefix = IsInRaid() and "raid" or "party"
+        for i = 1, n do
+            local g = UnitGUID(unitPrefix .. i)
+            if g then ctx.premadeGUIDs[g] = true end
+        end
+        local me = UnitGUID("player")
+        if me then ctx.premadeGUIDs[me] = true end
+    end
+
+    -- Start periodic mid-match snapshot ticker. C_Timer.NewTicker repeats
+    -- indefinitely until :Cancel() — we cancel on PVP_MATCH_COMPLETE and on
+    -- any subsequent OnMatchActive (so a missed COMPLETE event from a
+    -- DC/reload can't double-fire). When MID_SNAPSHOT_INTERVAL is 0 the
+    -- feature is disabled — see comment on the constant for why.
+    if MID_SNAPSHOT_INTERVAL > 0 then
+        ctx.snapshotTicker = C_Timer.NewTicker(MID_SNAPSHOT_INTERVAL, function()
+            Collector:TakeMidSnapshot()
+        end)
+    end
+
+    if not ctx.isEBG then
+        if instanceMapID == nil then
+            -- Uncertainty, not a verdict: GetInstanceInfo SHOULD be valid on
+            -- PVP_MATCH_ACTIVE, but if a timing case ever returns nil we retry
+            -- once. A whitelist hit late-starts the roster/alert modules
+            -- (safe at +2s: Deserter's capture train runs to +14s,
+            -- PremadeAlert's scan train starts at +4s and runs to +170s).
+            dbg("ACTIVE instance=nil — retry in 2s")
+            local myCtx = ctx
+            C_Timer.After(2, function()
+                if myCtx ~= ctx then return end  -- a different match took over
+                local id = select(8, GetInstanceInfo())
+                if ns.IsEBGInstanceID(id) then
+                    ctx.instanceMapID, ctx.isEBG = id, true
+                    dbg(("ACTIVE retry: instance=%d — EBG, late start"):format(id))
+                    if ns.Deserter then ns.Deserter:OnMatchActive() end
+                    if ns.PremadeAlert then ns.PremadeAlert:OnMatchActive() end
+                else
+                    dbg(("ACTIVE retry: instance=%s — not EBG"):format(tostring(id)))
+                end
+            end)
+        else
+            dbg(("non-EBG match (instance=%d) — collection off"):format(instanceMapID))
+        end
+    end
+end
+
+function Collector:GetMatchContext()
+    return ctx
+end
+
+-- True when the CURRENT match was recognised as an Epic BG on
+-- PVP_MATCH_ACTIVE (or by the nil-retry above). Main.lua gates the
+-- Deserter/PremadeAlert event handlers and the COMPLETE snapshot on this.
+function Collector:IsEBGMatch()
+    return ctx.isEBG == true
+end
+
+-- Main.lua logs its gate decisions into the same collectorLog ring buffer.
+function Collector:Debug(line)
+    dbg(line)
+end
+
+-- /reload mid-match wipes ctx; the COMPLETE handler then admits the match
+-- via its own live GetInstanceInfo read. Stash that id here so the actual
+-- snapshot (+1.4s later, possibly already teleported out) still has an
+-- instance id to fall back on — otherwise the hard guard below would drop
+-- a legitimate Epic.
+function Collector:AdoptInstanceID(id)
+    if ns.IsEBGInstanceID(id) and not ctx.isEBG then
+        ctx.instanceMapID, ctx.isEBG = id, true
+        dbg(("adopted instance=%d from COMPLETE handler"):format(id))
+    end
+end
+
+-- Returns the GUID of the raid leader on our side, or nil if we're not
+-- in a group or no rank-2 member is found. ``GetRaidRosterInfo(i)`` rank
+-- field: 0 = none, 1 = assist, 2 = leader. Iterates raid first (epic BG),
+-- falls back to party (small BGs / arenas — leader concept still exists).
+local function findRaidLeaderGUID()
+    local n = GetNumGroupMembers() or 0
+    if n == 0 then return nil end
+    if IsInRaid() then
+        for i = 1, n do
+            local _, rank = GetRaidRosterInfo(i)
+            if rank == 2 then
+                return UnitGUID("raid"..i)
+            end
+        end
+    else
+        -- Party: leader is whoever returns true for UnitIsGroupLeader.
+        if UnitIsGroupLeader and UnitIsGroupLeader("player") then
+            return UnitGUID("player")
+        end
+        for i = 1, n - 1 do
+            local unit = "party"..i
+            if UnitIsGroupLeader and UnitIsGroupLeader(unit) then
+                return UnitGUID(unit)
+            end
+        end
+    end
+    return nil
+end
+
+-- Retail 12.0.x marks live in-match scoreboard numbers as "secret
+-- values" — reading them in insecure code is fine, but any arithmetic
+-- on them taints the call site ("attempt to perform arithmetic on a
+-- secret number value"). The final post-match snapshot escapes this
+-- because Blizzard drops the protection on PVP_MATCH_COMPLETE, but
+-- our 300s-interval mid-match captures hit it head-on.
+--
+-- ``issecretvalue`` is a built-in Lua helper Blizzard exposes for
+-- exactly this case. We guard every numeric read with it and fall
+-- back to 0, so a tainted field doesn't kill the whole snapshot —
+-- the row still ships with whatever fields are readable. nil is
+-- treated as 0 to keep the call site branchless.
+local function safeNum(v)
+    if v == nil then return 0 end
+    if issecretvalue and issecretvalue(v) then return 0 end
+    return v
+end
+
+-- Mid-match snapshot: lightweight scoreboard capture taken every
+-- MID_SNAPSHOT_INTERVAL seconds while the match is active. Stores only
+-- the volatile numeric fields (dmg/heal/kb/deaths/objective) keyed by
+-- GUID — no race/class/spec/name (those don't change mid-match and are
+-- already in the final snapshot).
+--
+-- Lazy refresh: we still need a server-side score poke so rows are
+-- populated, but the 0.7s settle delay is shorter than the final
+-- snapshot — mid-match accuracy doesn't matter to the second.
+function Collector:TakeMidSnapshot()
+    if RequestBattlefieldScoreData then
+        RequestBattlefieldScoreData()
+    end
+    C_Timer.After(0.7, function()
+        local numScores = GetNumBattlefieldScores() or 0
+        if numScores == 0 then return end
+
+        local takenAt = time()
+        local players = {}
+        for i = 1, numScores do
+            local info = C_PvP.GetScoreInfo(i)
+            if info and info.guid then
+                local obj = 0
+                if info.stats then
+                    for _, s in ipairs(info.stats) do
+                        -- safeNum returns 0 for secret values, so the
+                        -- arithmetic below stays untainted regardless.
+                        obj = obj + safeNum(s.pvpStatValue)
+                    end
+                end
+                table.insert(players, {
+                    guid      = info.guid,
+                    dmg       = safeNum(info.damageDone),
+                    heal      = safeNum(info.healingDone),
+                    kb        = safeNum(info.killingBlows),
+                    deaths    = safeNum(info.deaths),
+                    objective = obj,
+                    faction   = info.faction,
+                })
+            end
+        end
+        if #players > 0 then
+            ctx.snapshots = ctx.snapshots or {}
+            table.insert(ctx.snapshots, {
+                takenAt = takenAt,
+                players = players,
+            })
+        end
+    end)
+end
+
+-- Public entry point used at match end.
+--
+-- Why this wrapper exists: the WoW client caches scoreboard rows
+-- lazily — only the team(s) whose pane the player has actually
+-- viewed during the match get populated. On EBG maps with a fast
+-- post-match teleport (AV / IoC) the player typically never opens
+-- the enemy pane, so an immediate ``GetNumBattlefieldScores()``
+-- returns only the player's own faction (40 rows instead of 80).
+--
+-- Fix: explicitly poke the server with ``RequestBattlefieldScoreData()``
+-- twice with a short gap so both teams' rows make it into the
+-- client cache, then iterate. Two refreshes (vs one) cover the
+-- case where the first response only contained the team that was
+-- last viewed; the second forces a full re-population.
+function Collector:ScheduleSnapshotMatch(callback)
+    local function refresh()
+        -- Unfilter to BOTH factions before requesting. RequestBattlefieldScoreData
+        -- alone does NOT lift the per-faction filter — only SetBattlefieldScoreFaction(-1)
+        -- shows both sides (the same call Blizzard's own scoreboard makes for the
+        -- "all factions" tab; PremadeAlert proved a bare request leaves only the
+        -- locally-viewed half). Empirically ~1% of matches still arrived single-
+        -- faction without this; cheap belt-and-suspenders on an already-complete match.
+        if SetBattlefieldScoreFaction then pcall(SetBattlefieldScoreFaction, -1) end
+        if RequestBattlefieldScoreData then
+            RequestBattlefieldScoreData()
+        end
+    end
+    refresh()
+    C_Timer.After(0.7, function()
+        refresh()
+        C_Timer.After(0.7, function()
+            local n = self:SnapshotMatch()
+            if callback then callback(n) end
+        end)
+    end)
+end
+
+-- Snapshot: iterate all score rows and push each row as a sample.
+function Collector:SnapshotMatch()
+    local numScores = GetNumBattlefieldScores() or 0
+    if numScores == 0 then return 0 end
+
+    local endedAt  = time()
+    -- Prefer C_PvP.GetActiveMatchWinner (more reliable across 12.0), fall back
+    -- to legacy GetBattlefieldWinner. Both return 0=Horde, 1=Alliance, nil=unknown.
+    local winner
+    if C_PvP and C_PvP.IsMatchComplete and C_PvP.IsMatchComplete()
+        and C_PvP.GetActiveMatchWinner then
+        winner = C_PvP.GetActiveMatchWinner()
+    end
+    if winner == nil then winner = GetBattlefieldWinner() end
+    local duration = (C_PvP.GetActiveMatchDuration and C_PvP.GetActiveMatchDuration())
+                      or (ctx.startedAt and (endedAt - ctx.startedAt))
+                      or nil
+    -- Map id: instance id ONLY (the id space the server whitelists). Prefer
+    -- the live read while we're still inside the BG; if the post-match
+    -- teleport already moved us (live id = capital / not whitelisted), fall
+    -- back to the instance id captured on PVP_MATCH_ACTIVE. Never UiMapID —
+    -- the old C_Map.GetBestMapForUnit fallback mixed id spaces and got real
+    -- Epics quarantined server-side as non_ebg_map.
+    local liveID  = select(8, GetInstanceInfo())
+    local mapID   = (ns.IsEBGInstanceID(liveID) and liveID)
+                  or ctx.instanceMapID
+    local mapName = (mapID and GetRealZoneText(mapID))
+                  or ctx.mapName or ""
+
+    -- Hard guard: never write a non-EBG match, whatever path led here.
+    -- The PVP_MATCH_COMPLETE handler already gates, but /piq snapshot
+    -- (cmdSnapshot → ScheduleSnapshotMatch directly) and any future
+    -- event-order bug land in this function too — the server quarantine
+    -- must stay defense-in-depth, not the primary filter.
+    if not ns.IsEBGInstanceID(mapID) then
+        dbg(("snapshot refused: non-EBG instance %s"):format(tostring(mapID)))
+        return 0
+    end
+
+    -- Team size counters
+    local teamSize = { [0] = 0, [1] = 0 }
+
+    local added = 0
+    for i = 1, numScores do
+        local info = C_PvP.GetScoreInfo(i)
+        if info and info.guid then
+            if info.faction == 0 or info.faction == 1 then
+                teamSize[info.faction] = teamSize[info.faction] + 1
+            end
+
+            -- Keep raw map-specific stats as a flat array of values.
+            local rawStats, objectivePoints = {}, 0
+            if info.stats then
+                for _, s in ipairs(info.stats) do
+                    table.insert(rawStats, { id = s.pvpStatID, v = s.pvpStatValue, name = s.name })
+                    objectivePoints = objectivePoints + (s.pvpStatValue or 0)
+                end
+            end
+
+            local won
+            if winner ~= nil then
+                won = (info.faction == winner)
+            end
+
+            local sample = {
+                mapID      = mapID,
+                mapName    = mapName,
+                duration   = duration,
+                bracket    = ctx.isBlitz and "BLITZ"
+                          or ctx.isRated and "RATED"
+                          or ctx.isEpic  and "EPIC"
+                          or "BG",
+                matchType  = ctx.matchType,
+                endedAt    = endedAt,
+
+                dmg        = info.damageDone    or 0,
+                heal       = info.healingDone   or 0,
+                kb         = info.killingBlows  or 0,
+                hk         = info.honorableKills or 0,
+                deaths     = info.deaths        or 0,
+                honor      = info.honorGained   or 0,
+                rating     = info.rating        or 0,
+                ratingChange = info.ratingChange or 0,
+                role       = info.role,
+                spec       = info.talentSpec,
+                objective  = objectivePoints,     -- quick aggregate
+                rawStats   = rawStats,            -- full breakdown for future analysis
+                faction    = info.faction,
+                race       = info.raceName,       -- localized; server has en_US + ru_RU lookup
+                premade    = ctx.premadeGUIDs and ctx.premadeGUIDs[info.guid] or false,
+                won        = won,
+            }
+
+            -- Same-realm players come from C_PvP.GetScoreInfo with a bare
+            -- ``name`` (no "-Realm" suffix); only cross-realm players get
+            -- the full "Name-Realm" form. The server-side enricher needs
+            -- the realm to resolve a Blizzard slug, so we append the local
+            -- realm ourselves when WoW elides it. Spaces are stripped to
+            -- match the cross-realm convention WoW already uses.
+            local fullName = info.name or ""
+            if fullName ~= "" and not fullName:find("-", 1, true) then
+                local realm = GetRealmName()
+                if realm and realm ~= "" then
+                    fullName = fullName .. "-" .. realm:gsub(" ", "")
+                end
+            end
+
+            local meta = {
+                name     = fullName,
+                class    = info.classToken,
+                faction  = info.faction,
+                lastSeen = endedAt,
+            }
+
+            ns.Database:AddSample(info.guid, meta, sample)
+            added = added + 1
+        end
+    end
+
+    -- startRoster (captured by Deserter:OnMatchActive at +6s after
+    -- PVP_MATCH_ACTIVE) ships alongside the match so the server can
+    -- diff it against the final scoreboard and infer who left.
+    local startRoster = ns.Deserter and ns.Deserter:GetRoster() or nil
+
+    -- Raid leader on our side at the moment of snapshot. Captured at
+    -- the same instant as the scoreboard so the GUID corresponds to
+    -- whoever actually held the lead role going into the final scoring
+    -- (a mid-match promotion / DC won't confuse the result).
+    local leaderGUID = findRaidLeaderGUID()
+
+    -- Stop the mid-snapshot ticker (match is over). Take one final mid
+    -- snapshot synchronously here so a player who left in the last
+    -- 5-minute window still has at least one numeric line — without this
+    -- the gap between last tick and end can swallow up to 5 minutes of
+    -- evidence for late-leavers. Note: this is the *snapshot timeline*
+    -- entry, separate from the final scoreboard rows being added above.
+    if ctx.snapshotTicker then
+        ctx.snapshotTicker:Cancel()
+        ctx.snapshotTicker = nil
+    end
+    local snapshots = ctx.snapshots or {}
+
+    ns.Database:IncrementMatch({
+        mapID       = mapID,
+        mapName     = mapName,
+        bracket     = ctx.isBlitz and "BLITZ" or ctx.isRated and "RATED" or ctx.isEpic and "EPIC" or "BG",
+        duration    = duration,
+        winner      = winner,
+        teamSize    = teamSize,
+        endedAt     = endedAt,
+        startRoster = startRoster,
+        leaderGUID  = leaderGUID,
+        snapshots   = snapshots,
+    })
+
+    if ns.Deserter then ns.Deserter:Reset() end
+
+    -- Clear context for next match
+    ctx = {}
+    return added
+end

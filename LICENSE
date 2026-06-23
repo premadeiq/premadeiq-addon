@@ -1,0 +1,27 @@
+PremadeIQ — Copyright (c) 2026 coldo. All Rights Reserved.
+
+PremadeIQ (the "Addon"), including its source code and assets in this package,
+is the property of the author.
+
+YOU MAY:
+  * download, install, and use the Addon with World of Warcraft for personal
+    play;
+  * report bugs and suggest changes.
+
+YOU MAY NOT, without prior written permission from the author:
+  * redistribute, repackage, re-host, or mirror the Addon or any modified
+    version of it (CurseForge / Wago / GitHub Releases by the author are the
+    only authorized distribution channels);
+  * sell the Addon or bundle it into a paid product or service;
+  * remove or alter this notice or the author / version metadata in the .toc.
+
+THIRD-PARTY LIBRARIES bundled under Libs/ — LibStub, CallbackHandler-1.0,
+LibSerialize, and LibDeflate — are the property of their respective authors and
+are distributed under their own licenses. Nothing in this file overrides or
+restricts those licenses; their notices are retained alongside their code.
+
+THE ADDON IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM, OUT
+OF, OR IN CONNECTION WITH THE ADDON OR THE USE OR OTHER DEALINGS IN THE ADDON.

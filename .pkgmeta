@@ -1,0 +1,20 @@
+# BigWigs packager manifest for the public mirror (premadeiq/premadeiq-addon).
+# Flat-root layout: the addon files live at the repo root and are wrapped into
+# the PremadeIQ/ folder in the zip. Libs/ are vendored (not externals), so there
+# is no externals section. KnownPremades.lua ships as the neutral stub (forced by
+# the sync script, asserted by tools/check_release.py in CI). PremadeIQ_Leader is
+# never synced here, so it cannot be packaged.
+
+package-as: PremadeIQ
+
+ignore:
+  - .github
+  - .gitignore
+  - .pkgmeta
+  - tools
+  - "*.md"
+  - "*.py"
+
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown

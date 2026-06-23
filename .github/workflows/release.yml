@@ -1,0 +1,46 @@
+name: Release addon
+# Lives at the ROOT of the public mirror (premadeiq/premadeiq-addon), FLAT layout:
+# PremadeIQ.toc / *.lua / Libs/ / KnownPremades.lua are at the repo root, so the
+# BigWigs packager auto-detects .pkgmeta at the root — no -m / topdir needed.
+#
+# Triggered by a tag `addon-v*` (use `addon-v<ver>-rc1` for a pre-release RC).
+# The release guard (tools/check_release.py) runs BEFORE the packager and again
+# on the built artifacts BEFORE publishing, so a tree or zip carrying the live
+# KnownPremades catalog or the owner-only PremadeIQ_Leader can never ship.
+
+on:
+  push:
+    tags:
+      - "addon-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write          # BigWigs uploads a GitHub Release
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0    # full history so the packager can build the changelog
+
+      - name: Release guard — source tree (pre-build)
+        run: python3 tools/check_release.py --tree .
+
+      - name: Build only (no upload)
+        uses: BigWigsMods/packager@v2
+        with:
+          args: "-d"        # -d: skip upload (build the normal with-libs package)
+
+      - name: Release guard — built artifacts (pre-publish)
+        run: python3 tools/check_release.py --zip .release
+
+      - name: Package & publish (CurseForge / Wago / GitHub Release)
+        uses: BigWigsMods/packager@v2
+        env:
+          CF_API_KEY:     ${{ secrets.CF_API_KEY }}
+          WAGO_API_TOKEN: ${{ secrets.WAGO_API_TOKEN }}
+          GITHUB_OAUTH:   ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: ""          # build + upload (with libs); CF/Wago auto-detected from .toc IDs
