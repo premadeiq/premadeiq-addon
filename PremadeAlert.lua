@@ -462,8 +462,9 @@ local function ensureCopyButton()
     if pos and pos.point then
         b:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
     else
-        -- Default: just under the centre-screen RaidWarning banner.
-        b:SetPoint("TOP", UIParent, "TOP", 0, -190)
+        -- Default: below the multi-line premade banner (which sits at -200 and
+        -- grows downward), so the two don't overlap on a fresh install.
+        b:SetPoint("TOP", UIParent, "TOP", 0, -320)
     end
     b:SetScript("OnDragStart", b.StartMoving)
     b:SetScript("OnDragStop", function(self)
@@ -498,6 +499,107 @@ function PremadeAlert:HideCopyButton()
     if self._copyBtn then self._copyBtn:Hide() end
 end
 
+-- ── Multi-line centre-screen banner ───────────────────────────────────────
+-- The Blizzard RaidWarningFrame (used in Announce for the headline) only ever
+-- shows ONE line, so the per-leader detail — who, and how many of their
+-- regulars are present — lived only in chat, where it drowns in a busy Epic.
+-- This is our own banner: a multi-line panel that mirrors the chat lines
+-- (headline + up to BANNER_MAX_LINES leaders + an "…and N more" overflow) so
+-- the full picture is impossible to miss. It is display-only — EnableMouse is
+-- off, so it can NEVER eat a click or steal WASD focus mid-fight — and it
+-- fades on its own after a few seconds (it does not linger over the field).
+local BANNER_MAX_LINES = 3      -- leader rows shown before collapsing to "…and N more"
+local BANNER_HOLD_SEC  = 7      -- fully-visible time before the fade begins
+local BANNER_FADE_SEC  = 1.5    -- fade-out duration (≈8.5s total on screen)
+local BANNER_WIDTH     = 460
+
+local function ensureBanner()
+    if PremadeAlert._banner then return PremadeAlert._banner end
+    local f = CreateFrame("Frame", "PremadeIQBanner", UIParent, "BackdropTemplate")
+    f:SetFrameStrata("HIGH")
+    f:SetClampedToScreen(true)
+    f:EnableMouse(false)          -- display only: never intercepts mouse/keyboard
+    f:SetWidth(BANNER_WIDTH)
+    -- Default just below the raid-warning zone; the copy button sits lower still
+    -- (its default moved down to clear this). Both are first-pass placements.
+    f:SetPoint("TOP", UIParent, "TOP", 0, -200)
+    f:SetBackdrop({
+        bgFile   = "Interface/Tooltips/UI-Tooltip-Background",
+        edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
+        tile = true, tileSize = 16, edgeSize = 16,
+        insets = { left = 5, right = 5, top = 5, bottom = 5 },
+    })
+    f:SetBackdropColor(0, 0, 0, 0.80)
+    f:SetBackdropBorderColor(0.5, 0.5, 0.5, 1)
+
+    local head = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    head:SetPoint("TOP", f, "TOP", 0, -10)
+    head:SetWidth(BANNER_WIDTH - 24)
+    head:SetJustifyH("CENTER")
+    f.head = head
+
+    local body = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    body:SetPoint("TOP", head, "BOTTOM", 0, -6)
+    body:SetWidth(BANNER_WIDTH - 24)
+    body:SetJustifyH("CENTER")
+    body:SetSpacing(3)
+    f.body = body
+
+    -- Hold fully visible, then fade and hide. Re-armed on every show (Restart()).
+    local ag = f:CreateAnimationGroup()
+    local a = ag:CreateAnimation("Alpha")
+    a:SetFromAlpha(1)
+    a:SetToAlpha(0)
+    a:SetStartDelay(BANNER_HOLD_SEC)
+    a:SetDuration(BANNER_FADE_SEC)
+    ag:SetScript("OnFinished", function() f:Hide() end)
+    f.fade = ag
+
+    f:Hide()
+    PremadeAlert._banner = f
+    return f
+end
+
+-- Up to BANNER_MAX_LINES leader rows (already sorted by headcount in detect),
+-- then an "…and N more" tail. Same leaderLineFor() text as chat, so the banner
+-- and chat never disagree.
+local function buildBannerBody(res)
+    local lines = {}
+    local shown = math.min(#res.leaders, BANNER_MAX_LINES)
+    for i = 1, shown do
+        lines[#lines + 1] = "|cffffd100" .. leaderLineFor(res.leaders[i]) .. "|r"
+    end
+    local extra = #res.leaders - shown
+    if extra > 0 then
+        lines[#lines + 1] = "|cff888888" .. L["PremadeMore"]:format(extra) .. "|r"
+    end
+    return table.concat(lines, "\n")
+end
+
+function PremadeAlert:ShowBanner(res)
+    local f = ensureBanner()
+    f.head:SetText(headlineFor(res))
+    if res.confirmed then
+        f.head:SetTextColor(1, 0.13, 0.13)   -- confirmed = red
+    else
+        f.head:SetTextColor(1, 0.80, 0.00)   -- possible = amber
+    end
+    f.body:SetText(buildBannerBody(res))
+    -- Size to content: top pad + headline + gap + body + bottom pad.
+    f:SetHeight(10 + f.head:GetStringHeight() + 6 + f.body:GetStringHeight() + 12)
+    f.fade:Stop()
+    f:SetAlpha(1)
+    f:Show()
+    f.fade:Restart()
+end
+
+function PremadeAlert:HideBanner()
+    if self._banner then
+        self._banner.fade:Stop()
+        self._banner:Hide()
+    end
+end
+
 function PremadeAlert:Announce(res)
     local header = headlineFor(res)
     -- Confirmed = red, possible = amber.
@@ -509,13 +611,18 @@ function PremadeAlert:Announce(res)
         prnt("|cffffd100" .. leaderLineFor(ld) .. "|r")
     end
 
-    -- Big centre-screen banner (the /rw-style frame) so it's impossible to miss
-    -- in a noisy Epic chat. Header alone is enough; the names stay in chat.
+    -- Big centre-screen headline (the /rw-style frame) so it's impossible to
+    -- miss in a noisy Epic chat. This frame is single-line, so it carries the
+    -- headline only; the per-leader detail goes into our own banner just below.
     if RaidNotice_AddMessage and RaidWarningFrame then
         local colour = res.confirmed and { r = 1, g = 0.13, b = 0.13 }
                                       or { r = 1, g = 0.8, b = 0 }
         pcall(RaidNotice_AddMessage, RaidWarningFrame, header, colour)
     end
+
+    -- Multi-line banner with the full per-leader detail (top leaders + overflow)
+    -- — what the single-line raid-warning above can't show.
+    self:ShowBanner(res)
 
     if not ns.Database or ns.Database:GetSetting("premadeSound") ~= false then
         PlaySound((SOUNDKIT and SOUNDKIT.RAID_WARNING) or 8959, "Master")
@@ -551,6 +658,7 @@ function PremadeAlert:OnMatchActive()
     lastLog = nil
     lastScanAt = 0
     self:HideCopyButton()   -- fresh match: drop any stale button until we re-detect
+    self:HideBanner()       -- and any stale banner from the previous match
     for _, t in ipairs(self._timers) do pcall(function() t:Cancel() end) end
     self._timers = {}
     -- Log catalog state at match start: a `leaders=0` here means the catalog
@@ -583,6 +691,7 @@ function PremadeAlert:Reset()
     matchStart = 0
     lastScanAt = 0
     self:HideCopyButton()   -- left the BG: tuck the button away
+    self:HideBanner()       -- and dismiss the banner
     for _, t in ipairs(self._timers) do pcall(function() t:Cancel() end) end
     self._timers = {}
 end

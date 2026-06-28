@@ -2,6 +2,15 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.24] — 2026-06-28
+
+### Changed
+- **Premade alert is now multi-line.** The on-screen premade warning now shows
+  the full breakdown — each enemy premade leader and how many of their players
+  are in the match (top 3, plus an "…and N more" line) — in its own banner, so
+  you no longer have to fish it out of chat. It fades on its own after a few
+  seconds and never intercepts a click or your movement keys.
+
 ## [0.9.23] — 2026-06-23
 
 ### Changed

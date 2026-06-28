@@ -23,6 +23,7 @@ local en = {
     ["PremadeNoLeader"]        = "PREMADE on the enemy team (leader not here)!",
     ["PremadeLeaderLine"]      = "Leader %s — with %d of their players",
     ["PremadeNoLeaderLine"]    = "%s's premade — %d regulars, leader not in BG",
+    ["PremadeMore"]            = "…and %d more",
     ["PremadeLeaders"]         = "Premade leaders",
     ["PremadeMembers"]         = "Premade members",
     ["PremadeNone"]            = "No known premade leader in this match",
@@ -93,6 +94,7 @@ local ruRU = {
     ["PremadeNoLeader"]        = "Во вражеской команде ПРЕМЕЙД (лидера нет)!",
     ["PremadeLeaderLine"]      = "Лидер %s — с ним игроков: %d",
     ["PremadeNoLeaderLine"]    = "Премейд %s — регуляров: %d, лидера нет в бою",
+    ["PremadeMore"]            = "…и ещё %d",
     ["PremadeLeaders"]         = "Лидеры премейда",
     ["PremadeMembers"]         = "Участники премейда",
     ["PremadeNone"]            = "Известного лидера премейда в этом бою нет",
@@ -263,7 +265,7 @@ end
 -- the locale merge so a non-English client still shows/copies English.
 for _, k in ipairs({
     "PremadeDetected", "PremadePossible", "PremadeNoLeader",
-    "PremadeLeaderLine", "PremadeNoLeaderLine",
+    "PremadeLeaderLine", "PremadeNoLeaderLine", "PremadeMore",
 }) do
     L[k] = en[k]
 end
