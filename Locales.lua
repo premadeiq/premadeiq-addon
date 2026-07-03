@@ -24,6 +24,7 @@ local en = {
     ["PremadeLeaderLine"]      = "Leader %s — with %d of their players",
     ["PremadeNoLeaderLine"]    = "%s's premade — %d regulars, leader not in BG",
     ["PremadeMore"]            = "…and %d more",
+    ["PremadeGroups"]          = "Enemy group leaders spotted: %d",
     ["PremadeLeaders"]         = "Premade leaders",
     ["PremadeMembers"]         = "Premade members",
     ["PremadeNone"]            = "No known premade leader in this match",
@@ -95,6 +96,7 @@ local ruRU = {
     ["PremadeLeaderLine"]      = "Лидер %s — с ним игроков: %d",
     ["PremadeNoLeaderLine"]    = "Премейд %s — регуляров: %d, лидера нет в бою",
     ["PremadeMore"]            = "…и ещё %d",
+    ["PremadeGroups"]          = "Замечено лидеров групп у противника: %d",
     ["PremadeLeaders"]         = "Лидеры премейда",
     ["PremadeMembers"]         = "Участники премейда",
     ["PremadeNone"]            = "Известного лидера премейда в этом бою нет",
@@ -266,6 +268,7 @@ end
 for _, k in ipairs({
     "PremadeDetected", "PremadePossible", "PremadeNoLeader",
     "PremadeLeaderLine", "PremadeNoLeaderLine", "PremadeMore",
+    "PremadeGroups",
 }) do
     L[k] = en[k]
 end

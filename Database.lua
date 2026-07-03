@@ -140,6 +140,14 @@ function Database:IncrementMatch(info)
         -- May be empty list for short matches (one tick window) or nil for
         -- pre-0.8.0 captures.
         snapshots = info.snapshots,
+        -- Group-leader ("crown") signals, addon ≥ 0.9.25.
+        -- enemyCrownMax = max simultaneously visible crowned enemies over the
+        -- match (enemy identity is secret in 12.x — a count is all there is).
+        -- allyCrowns = [{guid, name}] every group leader on OUR side (raid
+        -- lead + home-party leads, fully readable). nil when not captured
+        -- (/reload mid-match, pre-0.9.25 client).
+        enemyCrownMax = info.enemyCrownMax,
+        allyCrowns    = info.allyCrowns,
     })
     while #self.db.matchLog > MAX_MATCH_LOG do
         table.remove(self.db.matchLog, 1)

@@ -573,6 +573,12 @@ local function buildBannerBody(res)
     if extra > 0 then
         lines[#lines + 1] = "|cff888888" .. L["PremadeMore"]:format(extra) .. "|r"
     end
+    -- Live crown count (fed by Collector during the match): how many enemy
+    -- group leaders are visible at once. Appears once ≥2 have been seen —
+    -- one crown is just their raid lead.
+    if (PremadeAlert._crownCount or 0) >= 2 then
+        lines[#lines + 1] = "|cffffcc00" .. L["PremadeGroups"]:format(PremadeAlert._crownCount) .. "|r"
+    end
     return table.concat(lines, "\n")
 end
 
@@ -597,6 +603,39 @@ function PremadeAlert:HideBanner()
     if self._banner then
         self._banner.fade:Stop()
         self._banner:Hide()
+    end
+end
+
+-- Live "how many groups did they bring" tell, called by Collector's crown
+-- ticker on every new maximum of simultaneously visible crowned enemies
+-- (``UnitLeadsAnyGroup`` over the nameplate registry — no clicks needed).
+-- One crown is just their raid lead, so the signal starts at 2. Physics
+-- note: crowns need nameplate range (~40yd), so the first update lands at
+-- first contact, not at the gates — the start-of-match banner shows the
+-- catalog verdict, this line catches up a minute or two in.
+function PremadeAlert:OnEnemyCrowns(n)
+    if (n or 0) < 2 then return end
+    -- Same user toggle as the catalog alert: the crown line is an alert too.
+    if ns.Database and ns.Database:GetSetting("premadeAlert") == false then return end
+    self._crownCount = n
+    local line = L["PremadeGroups"]:format(n)
+    prnt("|cffffcc00" .. line .. "|r")
+    if self._crownRes then
+        -- Re-show the original premade banner; buildBannerBody appends the
+        -- crown line to it now that _crownCount is set.
+        self:ShowBanner(self._crownRes)
+    else
+        -- No catalog hit this match — the crown count IS the alert
+        -- (an unknown/uncatalogued premade still gets surfaced).
+        local f = ensureBanner()
+        f.head:SetText(line)
+        f.head:SetTextColor(1, 0.80, 0.00)
+        f.body:SetText("")
+        f:SetHeight(10 + f.head:GetStringHeight() + 12)
+        f.fade:Stop()
+        f:SetAlpha(1)
+        f:Show()
+        f.fade:Restart()
     end
 end
 
@@ -634,6 +673,10 @@ function PremadeAlert:Announce(res)
     prnt("|cff888888" .. L["PremadeCopyTip"] .. "|r")
 
     self._last = { res = res, at = time() }
+    -- THIS match's result, for the crown-count banner re-show. Unlike _last
+    -- it is cleared on match start/reset, so a crown update can never revive
+    -- the previous match's premade banner.
+    self._crownRes = res
 end
 
 -- Auto path: respects the per-match guard, the user's toggle, and the scan
@@ -657,6 +700,8 @@ function PremadeAlert:OnMatchActive()
     matchStart = time()
     lastLog = nil
     lastScanAt = 0
+    self._crownCount = nil  -- fresh match: crown counter starts over
+    self._crownRes   = nil
     self:HideCopyButton()   -- fresh match: drop any stale button until we re-detect
     self:HideBanner()       -- and any stale banner from the previous match
     for _, t in ipairs(self._timers) do pcall(function() t:Cancel() end) end
@@ -690,6 +735,8 @@ function PremadeAlert:Reset()
     fired = false
     matchStart = 0
     lastScanAt = 0
+    self._crownCount = nil   -- left the BG: crown state is per-match
+    self._crownRes   = nil
     self:HideCopyButton()   -- left the BG: tuck the button away
     self:HideBanner()       -- and dismiss the banner
     for _, t in ipairs(self._timers) do pcall(function() t:Cancel() end) end

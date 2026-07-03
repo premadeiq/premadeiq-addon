@@ -58,6 +58,103 @@ end
 -- secure-context hook). Setting interval to 0 disables the ticker.
 local MID_SNAPSHOT_INTERVAL = 0
 
+-- =========================================================================
+-- Group-leader ("crown") tracking — the premade tell that needs no names.
+--
+-- ``UnitLeadsAnyGroup(unit)`` answers "does this unit lead the group it is
+-- in" for ANY unit token, enemies included — it is what draws the crown on
+-- the Blizzard target frame (TargetFrameMixin:CheckPartyLeader). Inside a
+-- BG every party that queued TOGETHER keeps its home-party leader flagged,
+-- so the count of crowned enemies visible at one time is a lower bound on
+-- how many pre-formed groups the other team brought. One crown is just
+-- their raid lead; two or more means grouped players.
+--
+-- What 12.x secrecy leaves us (verified live, 2026-07): leadership IS
+-- readable on enemy nameplate units with no interaction, but enemy
+-- identity (name/guid) is secret both mid-match AND post-match — so the
+-- enemy side contributes a COUNT only. Our own raid is fully readable, so
+-- ally crowns ship as guid+name; one report from the other faction of the
+-- same match names OUR enemies on the server side.
+--
+-- C_NamePlate.GetNamePlates() returns nothing useful inside PvP instances,
+-- so we keep our own registry fed by NAME_PLATE_UNIT_ADDED/REMOVED (which
+-- do fire there) and poll it on a short ticker.
+-- =========================================================================
+
+local CROWN_TICK_SEC   = 2    -- nameplate poll cadence
+local ALLY_SWEEP_TICKS = 30   -- ally raid sweep every Nth tick (~60s)
+
+local plateUnits = {}         -- unitToken -> true (event-fed registry)
+
+local plateWatcher = CreateFrame("Frame")
+plateWatcher:RegisterEvent("NAME_PLATE_UNIT_ADDED")
+plateWatcher:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
+plateWatcher:SetScript("OnEvent", function(_, event, unit)
+    if not unit then return end
+    plateUnits[unit] = (event == "NAME_PLATE_UNIT_ADDED") and true or nil
+end)
+
+-- true only for a PROVEN non-secret truthy value. Secrets are truthy in
+-- Lua, so a bare ``if v`` would misread every secret as a yes.
+local function notSecretTrue(v)
+    if issecretvalue and issecretvalue(v) then return false end
+    return v and true or false
+end
+
+-- Deliberately NOT UnitCanAttack (hostility drops the moment the match
+-- completes) and secret-guarded per check: a secret answer means "not
+-- proven friendly", never "friendly" — the opposite reading silently
+-- discards every enemy whose identity checks come back secret.
+local function isFriendlyUnit(unit)
+    return notSecretTrue(UnitIsUnit(unit, "player"))
+        or notSecretTrue(UnitInRaid(unit))
+        or notSecretTrue(UnitInParty(unit))
+end
+
+-- One poll: how many enemy players with a visible nameplate lead a group.
+-- UnitIsPlayer left unguarded on purpose: secret (= can't tell) passes,
+-- a plain false (NPC) is excluded — a crowned NPC can't happen anyway.
+local function pollEnemyCrowns()
+    local crowns = 0
+    for u in pairs(plateUnits) do
+        if UnitExists(u) then
+            if not isFriendlyUnit(u) and UnitIsPlayer(u)
+                and notSecretTrue(UnitLeadsAnyGroup(u)) then
+                crowns = crowns + 1
+            end
+        else
+            plateUnits[u] = nil        -- stale token (missed REMOVED)
+        end
+    end
+    return crowns
+end
+
+-- Our own raid is fully readable: collect every group leader (raid lead
+-- and home-party leads alike) as guid+name into ctx.allyCrowns. Repeat
+-- sweeps merge by GUID, so mid-match lead changes accumulate rather than
+-- overwrite.
+local function sweepAllyCrowns()
+    local crowns = ctx.allyCrowns
+    if not crowns or not IsInRaid() then return end
+    for i = 1, (GetNumGroupMembers() or 0) do
+        local u = "raid" .. i
+        if UnitExists(u) and notSecretTrue(UnitLeadsAnyGroup(u)) then
+            local guid = UnitGUID(u)
+            local name = GetUnitName(u, true)   -- "Name-Realm" cross-realm, bare same-realm
+            if guid and name
+                and not (issecretvalue and (issecretvalue(guid) or issecretvalue(name))) then
+                if not name:find("-", 1, true) then
+                    local realm = GetRealmName()
+                    if realm and realm ~= "" then
+                        name = name .. "-" .. realm:gsub(" ", "")
+                    end
+                end
+                crowns[guid] = name
+            end
+        end
+    end
+end
+
 function Collector:OnMatchActive()
     -- Stop any leftover ticker from a previous match that ended uncleanly
     -- (DC, /reload). Ticker holds a closure on stale ctx — leaking it would
@@ -65,6 +162,10 @@ function Collector:OnMatchActive()
     if ctx.snapshotTicker then
         ctx.snapshotTicker:Cancel()
         ctx.snapshotTicker = nil
+    end
+    if ctx.crownTicker then
+        ctx.crownTicker:Cancel()
+        ctx.crownTicker = nil
     end
     -- Instance map id (GetInstanceInfo, 8th return) is the ONLY id space we
     -- use — it's what the server whitelists. The old fallback to
@@ -112,6 +213,32 @@ function Collector:OnMatchActive()
             Collector:TakeMidSnapshot()
         end)
     end
+
+    -- Crown tracking (see section header above). The ticker starts for every
+    -- match but its body gates on ctx.isEBG, so the nil-retry late-start
+    -- path picks it up automatically without extra wiring. ``ctx`` is read
+    -- through the upvalue at tick time: after the end-of-match reset the
+    -- surviving ticks see the fresh empty context and no-op.
+    wipe(plateUnits)
+    ctx.enemyCrownMax = 0
+    ctx.allyCrowns    = {}
+    local crownTick = 0
+    ctx.crownTicker = C_Timer.NewTicker(CROWN_TICK_SEC, function()
+        if not ctx.isEBG then return end
+        crownTick = crownTick + 1
+        local crowns = pollEnemyCrowns()
+        if crowns > (ctx.enemyCrownMax or 0) then
+            ctx.enemyCrownMax = crowns
+            if ns.PremadeAlert and ns.PremadeAlert.OnEnemyCrowns then
+                ns.PremadeAlert:OnEnemyCrowns(crowns)
+            end
+        end
+        -- First ally sweep ~2s in (roster may still settle — later sweeps
+        -- merge by GUID), then roughly once a minute.
+        if crownTick % ALLY_SWEEP_TICKS == 1 then
+            sweepAllyCrowns()
+        end
+    end)
 
     if not ctx.isEBG then
         if instanceMapID == nil then
@@ -445,6 +572,22 @@ function Collector:SnapshotMatch()
     end
     local snapshots = ctx.snapshots or {}
 
+    -- Freeze crown tracking: one last ally sweep at the same instant as the
+    -- scoreboard (leadership can change mid-match), stop the poll ticker,
+    -- and flatten the guid-keyed set into an array for the payload.
+    sweepAllyCrowns()
+    if ctx.crownTicker then
+        ctx.crownTicker:Cancel()
+        ctx.crownTicker = nil
+    end
+    local allyCrowns
+    if ctx.allyCrowns and next(ctx.allyCrowns) then
+        allyCrowns = {}
+        for guid, name in pairs(ctx.allyCrowns) do
+            allyCrowns[#allyCrowns + 1] = { guid = guid, name = name }
+        end
+    end
+
     ns.Database:IncrementMatch({
         mapID       = mapID,
         mapName     = mapName,
@@ -456,6 +599,10 @@ function Collector:SnapshotMatch()
         startRoster = startRoster,
         leaderGUID  = leaderGUID,
         snapshots   = snapshots,
+        -- Crown signals (addon ≥ 0.9.25): count-only for enemies (identity
+        -- is secret), guid+name for our own side. nil/0 when not captured.
+        enemyCrownMax = ctx.enemyCrownMax,
+        allyCrowns    = allyCrowns,
     })
 
     if ns.Deserter then ns.Deserter:Reset() end

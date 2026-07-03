@@ -2,6 +2,21 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.25] — 2026-07-04
+
+### Added
+- **Enemy group-leader counter.** Every party that queued together keeps its
+  leader crowned inside the raid — so several simultaneous crowns on the
+  enemy team mean pre-formed groups. The addon counts those crowns on visible
+  enemy nameplates, and when there are two or more, the alert gains an
+  "Enemy group leaders spotted: N" line (it also appears without a catalog
+  premade in the match). Only visible nameplates are counted, so the real
+  number of groups is always ≥ the shown one; enemy nameplates must be
+  enabled (default V key).
+- **Group leaders in match stats.** The match record now includes your own
+  team's group leaders and the maximum simultaneously visible enemy crowns —
+  one more premade signal for the community database and the website.
+
 ## [0.9.24] — 2026-06-28
 
 ### Changed
