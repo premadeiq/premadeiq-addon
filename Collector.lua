@@ -611,3 +611,23 @@ function Collector:SnapshotMatch()
     ctx = {}
     return added
 end
+
+
+-- Abandon the current match WITHOUT uploading: cancel the per-match tickers and
+-- clear context. Called from the PLAYER_ENTERING_WORLD leave-reset (Main.lua)
+-- for an ABNORMAL exit (kick / disconnect / leave with no PVP_MATCH_COMPLETE) —
+-- otherwise the crown ticker keeps polling nameplates out in the open world with
+-- a stale ``ctx.isEBG == true`` and fires spurious "enemy group leaders" alerts.
+-- SnapshotMatch (the clean end) already does this teardown inline; this is the
+-- path for when SnapshotMatch never runs.
+function Collector:Reset()
+    if ctx.snapshotTicker then
+        ctx.snapshotTicker:Cancel()
+        ctx.snapshotTicker = nil
+    end
+    if ctx.crownTicker then
+        ctx.crownTicker:Cancel()
+        ctx.crownTicker = nil
+    end
+    ctx = {}
+end

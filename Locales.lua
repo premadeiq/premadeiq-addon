@@ -35,6 +35,11 @@ local en = {
     ["PremadeCopyNone"]        = "No recent premade alert to copy.",
     ["PremadeCopyBtn"]         = "Copy premade alert",
     ["PremadeCopyBtnTip"]      = "Left-click: copy the enemy-premade line (box opens, Ctrl+C, paste into /rw or Discord). Right-click: hide. Drag to move.",
+    ["PremadeTargetsHeader"]    = "Known premade targets",
+    ["PremadeTargetLeader"]    = "Known premade leader",
+    ["PremadeTargetMember"]    = "Known premade member",
+    ["PremadeTargetGroups"]    = "Premades",
+    ["PremadeTargetClick"]     = "Left-click to target this player exactly",
 
     -- Commands help
     ["CmdHelp"] = "|cff33ff99PremadeIQ|r commands:\n"
@@ -109,6 +114,11 @@ local ruRU = {
     ["PremadeCopyNone"]        = "No recent premade alert to copy.",
     ["PremadeCopyBtn"]         = "Copy premade alert",
     ["PremadeCopyBtnTip"]      = "Left-click: copy the enemy-premade line (box opens, Ctrl+C, paste into /rw or Discord). Right-click: hide. Drag to move.",
+    ["PremadeTargetsHeader"]    = "Известные участники премейдов",
+    ["PremadeTargetLeader"]    = "Известный лидер премейда",
+    ["PremadeTargetMember"]    = "Известный участник премейда",
+    ["PremadeTargetGroups"]    = "Премейды",
+    ["PremadeTargetClick"]     = "ЛКМ: выбрать этого игрока в цель",
 
     ["CmdHelp"] = "|cff33ff99PremadeIQ|r команды:\n"
         .. "  /piq status           — размер базы\n"

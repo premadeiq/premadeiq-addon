@@ -69,6 +69,10 @@ f:SetScript("OnEvent", function(self, event, arg1, ...)
             if time() - lastMatchActiveAt > PEW_LEAVE_GRACE_SEC then
                 if ns.Deserter then ns.Deserter:Reset() end
                 if ns.PremadeAlert then ns.PremadeAlert:Reset() end
+                -- Also tear down the Collector's per-match tickers: on an
+                -- abnormal exit SnapshotMatch never runs, so without this the
+                -- crown ticker keeps polling in the open world (stale isEBG).
+                if ns.Collector then ns.Collector:Reset() end
             end
         end
 

@@ -394,7 +394,7 @@ end
 -- Broadcast-ready one-liner for the copy dialog — what the user pastes into
 -- /rw or raid chat themselves. "Headline — Leader X: 8 — Leader Y: 2".
 local function buildCopyText(res)
-    local parts = { headlineFor(res) }
+    local parts = { "[PremadeIQ] " .. headlineFor(res) }
     for _, ld in ipairs(res.leaders) do
         parts[#parts + 1] = leaderLineFor(ld)
     end

@@ -2,6 +2,41 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.29] — 2026-07-17
+
+### Fixed
+- The enemy group-leader ("crown") counter no longer fires spuriously in the
+  open world after an abnormal battleground exit (kick / disconnect / leaving
+  without a match-complete): on such an exit the Collector now stops its timers
+  instead of continuing to poll nameplates with a stale "this is an EBG" flag.
+
+## [0.9.28] — 2026-07-17
+
+### Fixed
+- The known-premade panel now uses only the database's strict confirmed roster:
+  at least five shared matches and a share strictly above 25%. The loose legacy
+  `members` list can no longer add incidental co-players.
+- When a player is linked to multiple premades, the website, catalog, and addon
+  use one canonical winner. Shared mercenary entries receive triple weight.
+
+## [0.9.27] — 2026-07-16
+
+### Added
+- **Clickable known-premade target panel.** During a battleground, PremadeIQ now
+  shows only enemy players present in the catalog as premade leaders or members.
+  Left-clicking a compact button securely selects that player with an exact
+  `/targetexact`; leaders are starred, names use class colors, and tooltips list
+  the associated premades.
+- The panel can be dragged out of combat. Secure buttons are pre-created, while
+  roster and layout changes during combat lockdown are deferred until combat
+  ends, avoiding taint and blocked-action errors.
+
+## [0.9.26] — 2026-07-15
+
+### Changed
+- Copied premade alerts now start with `[PremadeIQ]`, making the message source
+  immediately visible in chat.
+
 ## [0.9.25] — 2026-07-04
 
 ### Added
