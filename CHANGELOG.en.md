@@ -2,6 +2,28 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.30] — 2026-08-01
+
+### Fixed
+- **Clicks on the known-premade panel now work.** The buttons responded to
+  neither left- nor right-click: the game picks which click edge performs the
+  action from the `useOnKeyDown` attribute, falling back to the
+  `ActionButtonUseKeyDown` setting. That setting is on by default, so the action
+  was expected on key-down while the buttons were registered for key-up only —
+  the click was swallowed silently, with no error. The attribute is now set
+  explicitly and always matches the edge the buttons register for.
+
+### Added
+- **Right-click sets the player as focus** without dropping your current target
+  (right-click was not wired up at all before). Tooltip hint updated.
+
+### Changed
+- **Panel styling.** The near-black plate with white borders is replaced by a
+  muted dark background and a soft warm border. Buttons highlight on hover,
+  premade leaders get a warmer plate, and the header is gold.
+- The panel header now stays English on every client, like the premade alert
+  lines.
+
 ## [0.9.29] — 2026-07-17
 
 ### Fixed

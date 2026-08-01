@@ -73,6 +73,23 @@ local function restorePanelPosition(panel)
     end
 end
 
+-- Idle look. Leaders get a warm, slightly brighter plate so they read as the
+-- priority entry without needing the star to be spotted first.
+local function applyIdleStyle(button)
+    if button.playerInfo and button.playerInfo.isLeader then
+        button:SetBackdropColor(0.17, 0.14, 0.07, 0.86)
+        button:SetBackdropBorderColor(0.62, 0.50, 0.22, 0.75)
+    else
+        button:SetBackdropColor(0.11, 0.11, 0.14, 0.82)
+        button:SetBackdropBorderColor(0.30, 0.30, 0.36, 0.55)
+    end
+end
+
+local function applyHoverStyle(button)
+    button:SetBackdropColor(0.22, 0.22, 0.28, 0.94)
+    button:SetBackdropBorderColor(0.95, 0.78, 0.36, 0.95)
+end
+
 local function showTooltip(button)
     local player = button.playerInfo
     if not player then return end
@@ -94,13 +111,22 @@ local function makeButton(index, panel)
         "SecureActionButtonTemplate,BackdropTemplate"
     )
     button:SetSize(Targets.BUTTON_WIDTH, Targets.BUTTON_HEIGHT)
+    -- SecureActionButton_OnClick (Blizzard SecureTemplates.lua) decides which
+    -- click edge fires the action from the "useOnKeyDown" attribute, falling
+    -- back to the ActionButtonUseKeyDown CVar when the attribute is unset.
+    -- With that CVar on (the current default) a button registered for "AnyUp"
+    -- only ever sees down=false, `clickAction` evaluates false and the click is
+    -- swallowed silently — which is exactly why these buttons did nothing.
+    -- Pin the attribute to the edge we register for so the two always agree,
+    -- whatever the user's CVar says.
     button:RegisterForClicks("AnyUp")
+    button:SetAttribute("useOnKeyDown", false)
     button:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8X8",
         edgeFile = "Interface\\Buttons\\WHITE8X8",
         edgeSize = 1,
     })
-    button:SetBackdropColor(0.06, 0.06, 0.08, 0.94)
+    applyIdleStyle(button)
     button:Hide()
 
     local label = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -109,8 +135,14 @@ local function makeButton(index, panel)
     label:SetJustifyH("LEFT")
     button.label = label
 
-    button:SetScript("OnEnter", showTooltip)
-    button:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    button:SetScript("OnEnter", function(self)
+        applyHoverStyle(self)
+        showTooltip(self)
+    end)
+    button:SetScript("OnLeave", function(self)
+        applyIdleStyle(self)
+        GameTooltip:Hide()
+    end)
     return button
 end
 
@@ -133,7 +165,8 @@ function Targets:Initialize()
         edgeSize = 12,
         insets = { left = 3, right = 3, top = 3, bottom = 3 },
     })
-    panel:SetBackdropColor(0.015, 0.015, 0.02, 0.90)
+    panel:SetBackdropColor(0.05, 0.05, 0.07, 0.86)
+    panel:SetBackdropBorderColor(0.52, 0.45, 0.32, 0.90)
     restorePanelPosition(panel)
     panel:SetScript("OnDragStart", function(self)
         if not (InCombatLockdown and InCombatLockdown()) then self:StartMoving() end
@@ -147,6 +180,7 @@ function Targets:Initialize()
     local header = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     header:SetPoint("TOPLEFT", panel, "TOPLEFT", self.PANEL_PADDING, -6)
     header:SetJustifyH("LEFT")
+    header:SetTextColor(1, 0.82, 0.15)
     panel.header = header
 
     self._panel = panel
@@ -184,6 +218,7 @@ function Targets:ApplyPlayers(players)
             local player = players[i]
             local secureName = targetName(player.name)
             local macro = Core.TargetMacro(secureName)
+            local focusMacro = Core.FocusMacro(secureName)
             local pos = layout[i]
             button:ClearAllPoints()
             button:SetPoint(
@@ -195,7 +230,10 @@ function Targets:ApplyPlayers(players)
             )
             button:SetAttribute("type1", macro and "macro" or nil)
             button:SetAttribute("macrotext1", macro)
+            button:SetAttribute("type2", focusMacro and "macro" or nil)
+            button:SetAttribute("macrotext2", focusMacro)
             button.playerInfo = player
+            applyIdleStyle(button)
             button.label:SetText((player.isLeader and "★ " or "") .. displayName(player.name))
             local color = player.classToken and RAID_CLASS_COLORS and RAID_CLASS_COLORS[player.classToken]
             if color then
@@ -207,6 +245,8 @@ function Targets:ApplyPlayers(players)
         else
             button:SetAttribute("type1", nil)
             button:SetAttribute("macrotext1", nil)
+            button:SetAttribute("type2", nil)
+            button:SetAttribute("macrotext2", nil)
             button.playerInfo = nil
             button:Hide()
         end

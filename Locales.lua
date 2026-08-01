@@ -39,7 +39,7 @@ local en = {
     ["PremadeTargetLeader"]    = "Known premade leader",
     ["PremadeTargetMember"]    = "Known premade member",
     ["PremadeTargetGroups"]    = "Premades",
-    ["PremadeTargetClick"]     = "Left-click to target this player exactly",
+    ["PremadeTargetClick"]     = "Left-click: target this player. Right-click: set focus (keeps your current target)",
 
     -- Commands help
     ["CmdHelp"] = "|cff33ff99PremadeIQ|r commands:\n"
@@ -118,7 +118,7 @@ local ruRU = {
     ["PremadeTargetLeader"]    = "Известный лидер премейда",
     ["PremadeTargetMember"]    = "Известный участник премейда",
     ["PremadeTargetGroups"]    = "Премейды",
-    ["PremadeTargetClick"]     = "ЛКМ: выбрать этого игрока в цель",
+    ["PremadeTargetClick"]     = "ЛКМ: выбрать в цель. ПКМ: назначить фокусом (текущая цель сохранится)",
 
     ["CmdHelp"] = "|cff33ff99PremadeIQ|r команды:\n"
         .. "  /piq status           — размер базы\n"
@@ -279,6 +279,9 @@ for _, k in ipairs({
     "PremadeDetected", "PremadePossible", "PremadeNoLeader",
     "PremadeLeaderLine", "PremadeNoLeaderLine", "PremadeMore",
     "PremadeGroups",
+    -- The targets panel header sits on screen during the match and is read by
+    -- viewers on stream, so it stays English on every client too (owner call).
+    "PremadeTargetsHeader",
 }) do
     L[k] = en[k]
 end

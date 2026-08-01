@@ -122,6 +122,13 @@ function Core.TargetMacro(targetName)
     return "/cleartarget\n/targetexact " .. targetName
 end
 
+-- Right-click: set focus without losing the current target. /targetlasttarget
+-- restores whatever we had selected before the macro ran.
+function Core.FocusMacro(targetName)
+    if not validName(targetName) then return nil end
+    return "/targetexact " .. targetName .. "\n/focus\n/targetlasttarget"
+end
+
 function Core.ComputeLayout(count, maxColumns)
     count = math.max(0, math.floor(tonumber(count) or 0))
     maxColumns = math.max(1, math.floor(tonumber(maxColumns) or 1))
