@@ -2,6 +2,23 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.32] — 2026-08-03
+
+### Fixed
+- **The final scoreboard no longer ships empty.** In 12.0.x the combat numbers
+  (damage, healing, killing blows, deaths) are sometimes handed back as "secret
+  values": they cannot be read, and an `or 0` check does not catch them because
+  a secret is truthy in Lua. The row was then stored empty, making a player who
+  fought the whole match look like they did nothing. The addon now waits for the
+  numbers to become readable before saving (up to 4 attempts) and explicitly
+  zeroes only what genuinely could not be read.
+- The objective-point sum was computed on a possibly-secret value, which could
+  abort the whole end-of-match capture.
+
+### Added
+- The addon now tells the server how many scoreboard rows stayed unreadable.
+  The server no longer draws conclusions about who left early from such a match.
+
 ## [0.9.31] — 2026-08-01
 
 ### Fixed

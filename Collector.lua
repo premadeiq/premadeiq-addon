@@ -393,6 +393,44 @@ function Collector:TakeMidSnapshot()
     end)
 end
 
+-- ── Scoreboard readiness ─────────────────────────────────────────────────
+-- Retail 12.0.x can hand back the final scoreboard with the combat numbers
+-- still flagged as SECRET values. They are truthy, so `x or 0` does not catch
+-- them; the SavedVariables serializer then drops them and the row reaches the
+-- server as all-zero — indistinguishable from a player who did nothing. Prod
+-- evidence: three consecutive matches where the viewer's own row read
+-- 0/0/0/0 while honorGained and honorableKills came through fine, and one AV
+-- where 20 of 40 rows on one side were empty. Those rows then tripped the
+-- server's desertion heuristic against players who had played the whole game.
+--
+-- So: probe before capturing, and count the two failure shapes separately —
+-- SECRET (we could not read it) vs a plain zero (we read it, it really is 0).
+-- Only the first is worth waiting for; the second is legitimate data.
+local READY_RETRY_DELAY_SEC = 1.5
+local READY_MAX_ATTEMPTS    = 4
+
+local function scoreboardReadiness()
+    local n = GetNumBattlefieldScores() or 0
+    local secretRows, zeroRows = 0, 0
+    for i = 1, n do
+        local info = C_PvP.GetScoreInfo and C_PvP.GetScoreInfo(i)
+        if info then
+            local isSecret = false
+            for _, v in ipairs({ info.damageDone, info.healingDone,
+                                 info.killingBlows, info.deaths }) do
+                if issecretvalue and issecretvalue(v) then isSecret = true end
+            end
+            if isSecret then
+                secretRows = secretRows + 1
+            elseif safeNum(info.damageDone) == 0 and safeNum(info.healingDone) == 0
+                    and safeNum(info.killingBlows) == 0 and safeNum(info.deaths) == 0 then
+                zeroRows = zeroRows + 1
+            end
+        end
+    end
+    return n, secretRows, zeroRows
+end
+
 -- Public entry point used at match end.
 --
 -- Why this wrapper exists: the WoW client caches scoreboard rows
@@ -424,14 +462,38 @@ function Collector:ScheduleSnapshotMatch(callback)
     C_Timer.After(0.7, function()
         refresh()
         C_Timer.After(0.7, function()
-            local n = self:SnapshotMatch()
-            if callback then callback(n) end
+            -- Wait for the secret flags to come off before writing anything.
+            -- We never re-run SnapshotMatch after a write: AddSample appends
+            -- (Database.lua) and endedAt is time() taken inside, so a second
+            -- pass would duplicate every row AND register a second match.
+            -- Hence the retry lives here, strictly before the capture.
+            local function attempt(k)
+                local rows, secretRows, zeroRows = scoreboardReadiness()
+                dbg(("ready attempt=%d rows=%d secret=%d zero=%d")
+                    :format(k, rows, secretRows, zeroRows))
+                if secretRows > 0 and k < READY_MAX_ATTEMPTS then
+                    refresh()
+                    C_Timer.After(READY_RETRY_DELAY_SEC, function() attempt(k + 1) end)
+                    return
+                end
+                -- Out of attempts (or nothing secret left): capture regardless.
+                -- A partly-unreadable scoreboard still beats losing the match,
+                -- and statsSecret tells the server how much to trust it.
+                local n = self:SnapshotMatch(secretRows)
+                if callback then callback(n) end
+            end
+            attempt(1)
         end)
     end)
 end
 
 -- Snapshot: iterate all score rows and push each row as a sample.
-function Collector:SnapshotMatch()
+-- ``statsSecret`` (optional): how many scoreboard rows still read as secret
+-- when ScheduleSnapshotMatch gave up waiting. Shipped with the match so the
+-- server knows this capture is partly ours, not the players' — it refuses to
+-- infer desertion from a scoreboard we could not read. A direct call
+-- (/piq snapshot) passes nothing and the field stays nil = "unknown".
+function Collector:SnapshotMatch(statsSecret)
     local numScores = GetNumBattlefieldScores() or 0
     if numScores == 0 then return 0 end
 
@@ -480,12 +542,16 @@ function Collector:SnapshotMatch()
                 teamSize[info.faction] = teamSize[info.faction] + 1
             end
 
-            -- Keep raw map-specific stats as a flat array of values.
+            -- Keep raw map-specific stats as a flat array of values. safeNum
+            -- on both the stored value and the sum: a secret pvpStatValue
+            -- would taint the arithmetic here (killing the whole capture) and
+            -- would be dropped by the SavedVariables serializer anyway.
             local rawStats, objectivePoints = {}, 0
             if info.stats then
                 for _, s in ipairs(info.stats) do
-                    table.insert(rawStats, { id = s.pvpStatID, v = s.pvpStatValue, name = s.name })
-                    objectivePoints = objectivePoints + (s.pvpStatValue or 0)
+                    local v = safeNum(s.pvpStatValue)
+                    table.insert(rawStats, { id = s.pvpStatID, v = v, name = s.name })
+                    objectivePoints = objectivePoints + v
                 end
             end
 
@@ -505,14 +571,20 @@ function Collector:SnapshotMatch()
                 matchType  = ctx.matchType,
                 endedAt    = endedAt,
 
-                dmg        = info.damageDone    or 0,
-                heal       = info.healingDone   or 0,
-                kb         = info.killingBlows  or 0,
-                hk         = info.honorableKills or 0,
-                deaths     = info.deaths        or 0,
-                honor      = info.honorGained   or 0,
-                rating     = info.rating        or 0,
-                ratingChange = info.ratingChange or 0,
+                -- safeNum, not `or 0`: a SECRET number is truthy, so `or 0`
+                -- lets it through, and the SavedVariables serializer then
+                -- drops it — the row reaches the server with the field
+                -- missing and defaults to 0 anyway. Being explicit keeps the
+                -- capture honest (and untainted); statsSecret below records
+                -- how much of the scoreboard we could not actually read.
+                dmg        = safeNum(info.damageDone),
+                heal       = safeNum(info.healingDone),
+                kb         = safeNum(info.killingBlows),
+                hk         = safeNum(info.honorableKills),
+                deaths     = safeNum(info.deaths),
+                honor      = safeNum(info.honorGained),
+                rating     = safeNum(info.rating),
+                ratingChange = safeNum(info.ratingChange),
                 role       = info.role,
                 spec       = info.talentSpec,
                 objective  = objectivePoints,     -- quick aggregate
@@ -603,6 +675,10 @@ function Collector:SnapshotMatch()
         -- is secret), guid+name for our own side. nil/0 when not captured.
         enemyCrownMax = ctx.enemyCrownMax,
         allyCrowns    = allyCrowns,
+        -- Capture quality (addon ≥ 0.9.32): rows whose combat numbers were
+        -- still SECRET when we captured. > 0 ⇒ the server does not judge
+        -- anyone by this scoreboard. nil for a manual /piq snapshot.
+        statsSecret   = statsSecret,
     })
 
     if ns.Deserter then ns.Deserter:Reset() end

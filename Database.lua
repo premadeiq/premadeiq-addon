@@ -148,6 +148,9 @@ function Database:IncrementMatch(info)
         -- (/reload mid-match, pre-0.9.25 client).
         enemyCrownMax = info.enemyCrownMax,
         allyCrowns    = info.allyCrowns,
+        -- Scoreboard rows still unreadable (secret) at capture time, addon
+        -- ≥ 0.9.32. The server skips its desertion heuristic when this is > 0.
+        statsSecret   = info.statsSecret,
     })
     while #self.db.matchLog > MAX_MATCH_LOG do
         table.remove(self.db.matchLog, 1)
