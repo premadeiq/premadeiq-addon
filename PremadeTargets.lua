@@ -11,12 +11,33 @@ local Targets = {
     PANEL_PADDING = 7,
     HEADER_HEIGHT = 24,
     SCAN_THROTTLE_SEC = 1.0,
+    -- Asking the server for fresh scoreboard data is rate-limited separately
+    -- from reading the cache it fills: the ticker/startup burst request, the
+    -- UPDATE_BATTLEFIELD_SCORE handler only consumes. Coupling the two made a
+    -- request-then-immediately-read-the-old-cache pattern that also swallowed
+    -- the response event under the scan throttle.
+    REQUEST_THROTTLE_SEC = 2.0,
+    TICK_SEC = 2.0,
+    -- Short burst while the scoreboard fills at match start; the ticker covers
+    -- everything after it. Spaced >= SCAN_THROTTLE_SEC apart so each attempt
+    -- survives the throttle without needing force.
+    STARTUP_BURST = { 0.5, 1.5, 3, 6, 10 },
     _buttons = {},
     _signature = "",
     _lastScanAt = 0,
+    _lastRequestAt = 0,
     _scanning = false,
+    _headerStale = false,
+    _headerCount = 0,
+    _pendingSignature = nil,
+    _timers = {},
+    _generation = 0,
+    _ticker = nil,
 }
 ns.PremadeTargets = Targets
+
+-- Marker appended to the header while a roster update waits for combat to end.
+local STALE_MARK = "•"
 
 local function secret(value)
     return issecretvalue and issecretvalue(value)
@@ -195,21 +216,36 @@ end
 
 function Targets:ApplyPlayers(players)
     players = players or {}
+    local signature = Core.PlayerSignature(players)
+
     if not self:Initialize() then
         self._pendingPlayers = copyPlayers(players)
+        self._pendingSignature = signature
         return false
     end
 
-    if Core.ShouldDeferSecureUpdate(
-        InCombatLockdown and InCombatLockdown(),
-        self._signature,
-        players
-    ) then
-        self._pendingPlayers = copyPlayers(players)
+    if InCombatLockdown and InCombatLockdown() then
+        if signature ~= self._signature then
+            -- Secure attributes are frozen in combat: remember the newest
+            -- roster and flag the header. Skip the copy when the pending set
+            -- already matches — scoreboard events fire far faster than rosters
+            -- actually change.
+            if signature ~= self._pendingSignature then
+                self._pendingPlayers = copyPlayers(players)
+                self._pendingSignature = signature
+            end
+            self:SetHeaderStale(true)
+        else
+            -- The roster came back to what is already on the buttons. Any
+            -- pending update is now obsolete — dropping it matters, because
+            -- otherwise leaving combat would apply that older roster over a
+            -- display that is already correct.
+            self._pendingPlayers = nil
+            self._pendingSignature = nil
+            self:SetHeaderStale(false)
+        end
         return false
     end
-
-    if InCombatLockdown and InCombatLockdown() then return true end
 
     local count = math.min(#players, self.MAX_BUTTONS)
     local layout, columns, rows = Core.ComputeLayout(count, self.MAX_COLUMNS)
@@ -252,11 +288,17 @@ function Targets:ApplyPlayers(players)
         end
     end
 
-    self._signature = Core.PlayerSignature(players)
+    self._signature = signature
     self._pendingPlayers = nil
+    self._pendingSignature = nil
     self._players = copyPlayers(players)
+    self._headerCount = count
+    -- Cleared on BOTH branches below, including the hidden/zero-player one, so
+    -- the marker can never survive a successful application.
+    self._headerStale = false
 
     if count == 0 then
+        self:RenderHeader()
         self._panel:Hide()
     else
         local width = self.PANEL_PADDING * 2
@@ -266,10 +308,34 @@ function Targets:ApplyPlayers(players)
             + rows * self.BUTTON_HEIGHT
             + math.max(0, rows - 1) * self.BUTTON_GAP
         self._panel:SetSize(width, height)
-        self._panel.header:SetText(L["PremadeTargetsHeader"] .. " (" .. count .. ")")
+        self:RenderHeader()
         self._panel:Show()
     end
     return true
+end
+
+-- Header is a FontString on a NON-secure frame, so SetText/SetTextColor stay
+-- legal in combat lockdown — that is what lets us flag a deferred update while
+-- the secure buttons themselves cannot be touched. Always re-rendered from the
+-- base string + count so the marker can never be appended twice.
+function Targets:RenderHeader()
+    local panel = self._panel
+    if not panel or not panel.header then return end
+    local text = L["PremadeTargetsHeader"] .. " (" .. (self._headerCount or 0) .. ")"
+    if self._headerStale then
+        panel.header:SetText(text .. " " .. STALE_MARK)
+        panel.header:SetTextColor(0.80, 0.66, 0.28)
+    else
+        panel.header:SetText(text)
+        panel.header:SetTextColor(1, 0.82, 0.15)
+    end
+end
+
+function Targets:SetHeaderStale(stale)
+    stale = stale and true or false
+    if self._headerStale == stale then return end
+    self._headerStale = stale
+    self:RenderHeader()
 end
 
 function Targets:RebuildCatalog()
@@ -285,7 +351,11 @@ function Targets:RebuildCatalog()
     return self._catalogIndex
 end
 
-function Targets:RefreshFromScoreboard(force)
+-- `requestData` asks the server for a fresh scoreboard; without it we only read
+-- the cache the client already holds. The UPDATE_BATTLEFIELD_SCORE handler
+-- consumes without requesting, so a response can never be swallowed by the
+-- scan throttle that our own request had just armed.
+function Targets:RefreshFromScoreboard(force, requestData)
     if not self:Initialize() then return false end
     if not (C_PvP and C_PvP.IsBattleground and C_PvP.IsBattleground()) then
         return self:ApplyPlayers({})
@@ -294,11 +364,17 @@ function Targets:RefreshFromScoreboard(force)
     local now = GetTime and GetTime() or 0
     if not force and now - self._lastScanAt < self.SCAN_THROTTLE_SEC then return false end
     if self._scanning then return false end
+    -- Both flags are set BEFORE SetBattlefieldScoreFaction, which fires
+    -- UPDATE_BATTLEFIELD_SCORE synchronously — that is what stops the handler
+    -- from re-entering this function.
     self._lastScanAt = now
     self._scanning = true
 
-    if SetBattlefieldScoreFaction then pcall(SetBattlefieldScoreFaction, -1) end
-    if RequestBattlefieldScoreData then pcall(RequestBattlefieldScoreData) end
+    if requestData and now - (self._lastRequestAt or 0) >= self.REQUEST_THROTTLE_SEC then
+        self._lastRequestAt = now
+        if SetBattlefieldScoreFaction then pcall(SetBattlefieldScoreFaction, -1) end
+        if RequestBattlefieldScoreData then pcall(RequestBattlefieldScoreData) end
+    end
 
     local rows = {}
     local count = (GetNumBattlefieldScores and GetNumBattlefieldScores()) or 0
@@ -321,8 +397,13 @@ function Targets:RefreshFromScoreboard(force)
     end
 
     local realm = GetNormalizedRealmName and GetNormalizedRealmName() or nil
-    local players = Core.FilterRoster(rows, self:RebuildCatalog(), playerFaction(), realm)
+    -- Clear _scanning even if filtering or application throws: leaving it set
+    -- would wedge every future scan behind the re-entry guard above.
+    local ok, players = pcall(
+        Core.FilterRoster, rows, self:RebuildCatalog(), playerFaction(), realm
+    )
     self._scanning = false
+    if not ok then return false end
     return self:ApplyPlayers(players)
 end
 
@@ -331,13 +412,70 @@ function Targets:OnPlayerRegenEnabled()
     if self._pendingPlayers then
         local players = self._pendingPlayers
         self._pendingPlayers = nil
+        self._pendingSignature = nil
         return self:ApplyPlayers(players)
     end
-    return self:RefreshFromScoreboard(true)
+    return self:RefreshFromScoreboard(true, true)
+end
+
+-- C_Timer.After gives no handle, so its callbacks outlive the match that
+-- scheduled them — a 120s one could fire inside the NEXT battleground and scan
+-- it, or clear the panel out in the world. Everything scheduled here is a
+-- cancelable NewTimer, and each callback also checks the match generation, so
+-- a timer that slips through cancellation is still inert.
+function Targets:CancelScheduled()
+    for i = #self._timers, 1, -1 do
+        local timer = self._timers[i]
+        if timer and timer.Cancel then pcall(timer.Cancel, timer) end
+        self._timers[i] = nil
+    end
+end
+
+function Targets:ScheduleStartupBurst()
+    self:CancelScheduled()
+    self._generation = self._generation + 1
+    local generation = self._generation
+    for _, delay in ipairs(self.STARTUP_BURST) do
+        local timer = C_Timer.NewTimer(delay, function()
+            if generation ~= self._generation then return end
+            self:RefreshFromScoreboard(true, true)
+        end)
+        self._timers[#self._timers + 1] = timer
+    end
+end
+
+function Targets:StopTicker()
+    if self._ticker then
+        if self._ticker.Cancel then pcall(self._ticker.Cancel, self._ticker) end
+        self._ticker = nil
+    end
+end
+
+function Targets:StartTicker()
+    self:StopTicker()
+    local generation = self._generation
+    self._ticker = C_Timer.NewTicker(self.TICK_SEC, function()
+        -- Self-cancel covers abnormal exits (kick, disconnect, manual leave)
+        -- where PVP_MATCH_COMPLETE never arrives and the ticker would
+        -- otherwise wake forever.
+        if generation ~= self._generation
+            or not (C_PvP and C_PvP.IsBattleground and C_PvP.IsBattleground()) then
+            self:StopTicker()
+            return
+        end
+        if InCombatLockdown and InCombatLockdown() then return end
+        self:RefreshFromScoreboard(false, true)
+    end)
 end
 
 function Targets:Reset()
+    self:CancelScheduled()
+    self:StopTicker()
+    self._generation = self._generation + 1
     self._lastScanAt = 0
+    self._lastRequestAt = 0
+    self._pendingPlayers = nil
+    self._pendingSignature = nil
     return self:ApplyPlayers({})
 end
 
@@ -352,14 +490,29 @@ eventFrame:SetScript("OnEvent", function(_, event, arg1)
     if event == "ADDON_LOADED" then
         if arg1 == ADDON then Targets:Initialize() end
     elseif event == "PLAYER_ENTERING_WORLD" then
-        C_Timer.After(2, function() Targets:RefreshFromScoreboard(true) end)
+        -- Landing outside a battleground is the reliable signal that a match
+        -- ended without PVP_MATCH_COMPLETE (kick, disconnect, manual leave).
+        -- PLAYER_LEAVING_WORLD is not usable here: it fires before the
+        -- destination is known, so cancelling on it would kill a live match's
+        -- timers during an ordinary loading screen.
+        if C_PvP and C_PvP.IsBattleground and C_PvP.IsBattleground() then
+            Targets:ScheduleStartupBurst()
+            Targets:StartTicker()
+        else
+            Targets:CancelScheduled()
+            Targets:StopTicker()
+            Targets:RefreshFromScoreboard(true, false)
+        end
     elseif event == "PVP_MATCH_ACTIVE" then
         Targets._lastScanAt = 0
-        for _, delay in ipairs({ 1, 4, 8, 15, 30, 60, 120 }) do
-            C_Timer.After(delay, function() Targets:RefreshFromScoreboard(true) end)
-        end
+        Targets._lastRequestAt = 0
+        Targets:ScheduleStartupBurst()
+        Targets:StartTicker()
     elseif event == "UPDATE_BATTLEFIELD_SCORE" then
-        Targets:RefreshFromScoreboard(false)
+        -- Consume only: the data is already in the client cache, and issuing
+        -- another request here would re-arm the throttle against the very
+        -- response we are handling.
+        Targets:RefreshFromScoreboard(false, false)
     elseif event == "PLAYER_REGEN_ENABLED" then
         Targets:OnPlayerRegenEnabled()
     elseif event == "PVP_MATCH_COMPLETE" then

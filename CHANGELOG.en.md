@@ -2,6 +2,33 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.31] — 2026-08-01
+
+### Fixed
+- **The panel could revert to an outdated roster.** If the roster changed during
+  combat and then went back to what was already on screen, the obsolete queued
+  update was not dropped — and leaving combat applied it over a correct list.
+  A roster matching the display now clears any pending update.
+- Scan timers scheduled at match start no longer survive into the next match:
+  they are cancelable now, and every callback checks the match generation.
+- The internal scanning flag is cleared even on error — a failure in filtering
+  could previously wedge every later panel update.
+
+### Added
+- **A "•" marker in the header** while an update waits for combat to end, so the
+  list on screen never lies about how fresh it is. It clears the moment the
+  roster is applied.
+- A 2-second out-of-combat check, so the short lulls between fights are used to
+  apply deferred updates instead of waiting for the next scoreboard event.
+
+### Changed
+- Requesting scoreboard data is now separate from reading the cache: the event
+  handler no longer fires a second request that could push the server's response
+  under its own throttle.
+- The startup scan burst is shorter (0.5–10s); the periodic check covers the rest.
+- The panel is fully English now: its tooltips (player role, premade list, click
+  hint) follow the header and stay English on every client.
+
 ## [0.9.30] — 2026-08-01
 
 ### Fixed

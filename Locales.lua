@@ -279,9 +279,14 @@ for _, k in ipairs({
     "PremadeDetected", "PremadePossible", "PremadeNoLeader",
     "PremadeLeaderLine", "PremadeNoLeaderLine", "PremadeMore",
     "PremadeGroups",
-    -- The targets panel header sits on screen during the match and is read by
-    -- viewers on stream, so it stays English on every client too (owner call).
+    -- The whole targets panel — header and its tooltips — sits on screen during
+    -- the match and is read by viewers on stream, so it stays English on every
+    -- client too (owner call).
     "PremadeTargetsHeader",
+    "PremadeTargetLeader",
+    "PremadeTargetMember",
+    "PremadeTargetGroups",
+    "PremadeTargetClick",
 }) do
     L[k] = en[k]
 end
