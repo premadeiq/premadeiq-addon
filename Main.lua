@@ -100,6 +100,9 @@ f:SetScript("OnEvent", function(self, event, arg1, ...)
             -- match's opening phase. No-op if quorum already reached or if
             -- we're past the 30-sec capture window.
             if ns.Deserter then ns.Deserter:OnBattlefieldScoreUpdate() end
+            -- Baseline roster probe: rides the same free updates instead of
+            -- running its own poll loop, and no-ops once captured.
+            ns.Collector:OnBattlefieldScoreUpdate()
             -- Same free trigger for the premade alert: catches a late-arriving
             -- enemy roster the instant it populates, not just at fixed ticks.
             if ns.PremadeAlert then ns.PremadeAlert:OnBattlefieldScoreUpdate() end

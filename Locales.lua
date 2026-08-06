@@ -25,6 +25,10 @@ local en = {
     ["PremadeNoLeaderLine"]    = "%s's premade — %d regulars, leader not in BG",
     ["PremadeMore"]            = "…and %d more",
     ["PremadeGroups"]          = "Enemy group leaders spotted: %d",
+    -- Marked as "takes raid lead, runs no premade": a separate, neutral
+    -- notice. Never phrased as an accusation — the metric it comes from
+    -- catches deliberate raid leaders too, the owner included.
+    ["RaidLeadDetected"]       = "Usually takes raid lead: %s",
     ["PremadeLeaders"]         = "Premade leaders",
     ["PremadeMembers"]         = "Premade members",
     ["PremadeNone"]            = "No known premade leader in this match",
@@ -278,7 +282,7 @@ end
 for _, k in ipairs({
     "PremadeDetected", "PremadePossible", "PremadeNoLeader",
     "PremadeLeaderLine", "PremadeNoLeaderLine", "PremadeMore",
-    "PremadeGroups",
+    "PremadeGroups", "RaidLeadDetected",
     -- The whole targets panel — header and its tooltips — sits on screen during
     -- the match and is read by viewers on stream, so it stays English on every
     -- client too (owner call).

@@ -2,6 +2,30 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.33] — 2026-08-07
+
+### Fixed
+- **Matches you joined late no longer disappear.** If you dropped into a battle
+  already in progress (Wintergrasp, Alterac Valley and Ashran all allow it), the
+  server concluded you had been in two matches at once and threw the whole match
+  away: absent from the site, absent from premade detection. The cause is that
+  the duration the game reports measures the **battle**, not how long you were
+  in it. The addon now reports when it entered. On prod this was losing 2.5% of
+  all matches.
+
+### Added
+- **A separate notice for people who take raid lead but run no premade.** They
+  no longer raise a premade alert; instead one neutral line reads "Usually takes
+  raid lead". No roster, no count, no verdict — the metric that marks them
+  catches ordinary raid leaders too.
+- **The addon records who was on the scoreboard before substitutions.** Combat
+  numbers for players who left cannot be recovered in 12.0.x, but names are
+  always readable, so one snapshot is taken once the scoreboard has demonstrably
+  finished loading. This lets the site tell late joiners again, and stops the
+  "deserter" mark from sticking to someone who merely arrived later. The
+  snapshot rides the scoreboard updates the addon already receives and switches
+  itself off the moment it is captured, so it adds no polling.
+
 ## [0.9.32] — 2026-08-03
 
 ### Fixed

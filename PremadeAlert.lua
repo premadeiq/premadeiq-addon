@@ -73,6 +73,11 @@ local CONFIRM_MIN_MEMBERS = 6
 -- the leaderless headline, where the leader isn't present to read a name off).
 local lookup = nil
 local lookupName = nil
+-- normalised-name / guid -> display name for leaders the owner marked as
+-- "takes raid lead, runs no premade". They arrive in their OWN catalog
+-- array (raid_leads) precisely so they never reach the premade paths
+-- below: no roster, no count, no verdict — just a separate notice.
+local lookupRaidLead = nil
 local lookupGen = nil
 local leaderNameById = nil
 
@@ -138,13 +143,23 @@ local function ensureLookup()
     local cat = PremadeIQ_KnownPremades
     if type(cat) ~= "table" or type(cat.leaders) ~= "table" then
         lookup, lookupName, lookupGen, leaderNameById = {}, {}, nil, {}
+        lookupRaidLead = {}
         return
     end
     if lookup ~= nil and lookupGen == cat.generated_at then
         return
     end
     lookup, lookupName, leaderNameById = {}, {}, {}
+    lookupRaidLead = {}
     lookupGen = cat.generated_at
+
+    if type(cat.raid_leads) == "table" then
+        for _, rl in ipairs(cat.raid_leads) do
+            if type(rl.guid) == "string" then lookupRaidLead[rl.guid] = rl.name end
+            local k = normName(rl.name)
+            if k then lookupRaidLead[k] = rl.name end
+        end
+    end
 
     -- Find the existing entry for this player (by guid, then name) or make a
     -- fresh one, and (re)register it under both keys so later passes find it.
@@ -256,6 +271,8 @@ local function detectImpl()
     -- were READABLE-faction enemies — the leaderless path requires that, since a
     -- secret-faction member could actually be on our own side.
     local present, presentLeaders, seen, enemyReadable = {}, {}, {}, {}
+    -- Marked solo raid leaders on the enemy side, deduped by display name.
+    local raidLeads, raidLeadSeen = {}, {}
     for i = 1, n do
         local info = C_PvP.GetScoreInfo and C_PvP.GetScoreInfo(i)
         if info then
@@ -275,6 +292,20 @@ local function detectImpl()
             if entry == nil and plainName then
                 local key = normName(name)
                 if key then entry = lookupName[key] end
+            end
+
+            -- Separate, independent check: a solo raid lead is not in the
+            -- premade lookup at all, so this cannot touch the counts below.
+            if lookupRaidLead and isEnemy(info.faction, mine) then
+                local rl = (plainGuid and lookupRaidLead[guid]) or nil
+                if rl == nil and plainName then
+                    local rk = normName(name)
+                    if rk then rl = lookupRaidLead[rk] end
+                end
+                if rl and not raidLeadSeen[rl] then
+                    raidLeadSeen[rl] = true
+                    raidLeads[#raidLeads + 1] = (plainName and name) or rl
+                end
             end
 
             if entry then
@@ -342,12 +373,13 @@ local function detectImpl()
         end
     end
 
-    if #out == 0 then return { leaders = {} } end
+    if #out == 0 then return { leaders = {}, raidLeads = raidLeads } end
     table.sort(out, function(a, b) return a.count > b.count end)
     diag.ldr = #out
     -- leaderlessOnly drives a distinct headline when NO marked leader is present
     -- at all (only the regulars gave the premade away).
-    return { leaders = out, confirmed = confirmed, leaderlessOnly = not anyPresent }
+    return { leaders = out, confirmed = confirmed,
+             leaderlessOnly = not anyPresent, raidLeads = raidLeads }
 end
 
 -- Re-entrancy guard around detectImpl. SetBattlefieldScoreFaction() inside it
@@ -639,7 +671,27 @@ function PremadeAlert:OnEnemyCrowns(n)
     end
 end
 
+-- "Usually takes raid lead" — one neutral line about people the owner
+-- marked as raid leads who run no premade. Printed with the premade alert
+-- when both are present, on its own when only they are. Deliberately not
+-- a raid-warning and not a sound: it is information, not an alarm.
+local function raidLeadLine(res)
+    local names = res and res.raidLeads
+    if not names or #names == 0 then return nil end
+    return L["RaidLeadDetected"]:format(table.concat(names, ", "))
+end
+
 function PremadeAlert:Announce(res)
+    -- Only solo raid leads present: say that and nothing else. Running the
+    -- premade headline here would announce a premade that isn't there.
+    if #res.leaders == 0 then
+        local line = raidLeadLine(res)
+        if line then
+            prnt("|cffffcc00" .. line .. "|r")
+            self._last = { res = res, at = time() }
+        end
+        return
+    end
     local header = headlineFor(res)
     -- Confirmed = red, possible = amber.
     local hex = res.confirmed and "ff2020" or "ffcc00"
@@ -689,7 +741,10 @@ local function autoScan()
     lastScanAt = now
     local res = detect()
     logDiag("scan")
-    if not res or #res.leaders == 0 then return end  -- no leader → not a premade
+    if not res then return end
+    -- A solo raid lead alone is worth saying out loud too, even though it
+    -- is not a premade and never changes the verdict.
+    if #res.leaders == 0 and #(res.raidLeads or {}) == 0 then return end
     fired = true
     PremadeAlert:Announce(res)
     dbg(("ANNOUNCE leaders=%d confirmed=%s"):format(#res.leaders, tostring(res.confirmed)))
@@ -757,7 +812,7 @@ function PremadeAlert:ManualScan()
         end
         return
     end
-    if #res.leaders == 0 then
+    if #res.leaders == 0 and #(res.raidLeads or {}) == 0 then
         prnt(L["PremadeNone"])
         return
     end

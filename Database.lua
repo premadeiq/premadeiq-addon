@@ -11,6 +11,10 @@ local ADDON, ns = ...
 --   matchLog = { {
 --     endedAt, mapID, mapName, bracket, duration, winner, teamSize,
 --     startRoster, leaderGUID,
+--     -- startedAt: when WE entered (PVP_MATCH_ACTIVE). Distinct from
+--     -- endedAt - duration, which is when the BATTLE started; on a late
+--     -- join the two are minutes apart. nil when unknown.
+--     startedAt,
 --     -- v3 added: periodic in-match scoreboards taken every 300s
 --     snapshots = { { takenAt, players = [{guid, dmg, heal, kb, deaths, objective, faction}, ...] }, ... },
 --   }, ... },
@@ -126,6 +130,12 @@ function Database:IncrementMatch(info)
         endedAt  = info.endedAt or time(),
         mapID    = info.mapID, mapName = info.mapName,
         bracket  = info.bracket, duration = info.duration,
+        -- When the REPORTER entered the match (addon ≥ 0.9.33). `duration` is
+        -- the battle's length, which on a late join starts before we did —
+        -- shipping both lets the server bound our actual presence instead of
+        -- guessing it from `endedAt - duration`. nil when unknown (/reload
+        -- mid-match); the server then keeps its old duration-based guess.
+        startedAt = info.startedAt,
         -- GUID of our raid leader at snapshot time; nil if not in a group
         -- or no rank-2 member (solo BG, etc.). Server stores on Match
         -- and increments per-player leader_count.
@@ -151,6 +161,10 @@ function Database:IncrementMatch(info)
         -- Scoreboard rows still unreadable (secret) at capture time, addon
         -- ≥ 0.9.32. The server skips its desertion heuristic when this is > 0.
         statsSecret   = info.statsSecret,
+        -- Baseline roster by NAME (addon ≥ 0.9.33): who was on the board once
+        -- it had demonstrably finished loading. nil when no trustworthy
+        -- baseline could be taken. { ageSec, rowsH, rowsA, players }
+        baseline      = info.baseline,
     })
     while #self.db.matchLog > MAX_MATCH_LOG do
         table.remove(self.db.matchLog, 1)

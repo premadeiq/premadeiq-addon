@@ -58,6 +58,29 @@ end
 -- secure-context hook). Setting interval to 0 disables the ticker.
 local MID_SNAPSHOT_INTERVAL = 0
 
+-- ── Baseline roster ──────────────────────────────────────────────────────
+-- What survives the secret-value regime: PVPScoreInfo marks `name`, `faction`,
+-- `raceName`, `className` and `classToken` as NeverSecret (see
+-- Blizzard_APIDocumentationGenerated/PvpInfoDocumentation.lua), while `guid`
+-- and every combat number may be secret mid-match. So we cannot recover a
+-- leaver's metrics — but we CAN record WHO was on the board before the
+-- substitutions started, by name, for both teams.
+--
+-- One baseline per match, taken once the scoreboard has demonstrably finished
+-- loading. That is enough to answer "did this player join late?", which the
+-- server needs for two things: the late-join badge, and the late-join veto in
+-- its desertion heuristic (whose only current source, startRoster, is built
+-- from raid unit tokens and therefore covers our own side only).
+--
+-- Thresholds are deliberately conservative — a false "joined late" is worse
+-- than no answer, and the ENEMY half of an Epic scoreboard can take a minute
+-- or more to populate client-side (see PremadeAlert's scan-window comments).
+-- "Both sides look full" is NOT the test: a side that is down a player sits at
+-- 39. We require a stable, near-complete board confirmed twice in a row.
+local BASELINE_MIN_AGE_SEC   = 120   -- match must be at least this old
+local BASELINE_MIN_ROWS_SIDE = 38    -- rows visible on EACH side
+local BASELINE_CONFIRM_TICKS = 2     -- consecutive observations that agree
+
 -- =========================================================================
 -- Group-leader ("crown") tracking — the premade tell that needs no names.
 --
@@ -393,6 +416,93 @@ function Collector:TakeMidSnapshot()
     end)
 end
 
+-- Canonical scoreboard name: WoW elides the realm for same-realm players, so
+-- append ours to match the cross-realm "Name-Realm" form the rest of the
+-- pipeline (and the final snapshot) uses. Without this the baseline would not
+-- line up with the final scoreboard and every local player would read as a
+-- late join.
+local function scoreName(name)
+    if issecretvalue and issecretvalue(name) then return nil end
+    if type(name) ~= "string" or name == "" then return nil end
+    if name:find("-", 1, true) then return name end
+    local realm = GetRealmName()
+    if realm and realm ~= "" then
+        return name .. "-" .. realm:gsub(" ", "")
+    end
+    return nil   -- no realm to qualify with: unusable as an identity
+end
+
+-- One probe of the baseline condition. Returns true once the baseline has been
+-- captured (or was already), so the caller can stop probing.
+--
+-- Runs off the scoreboard updates the addon already receives — no independent
+-- polling loop competing with the premade scan for the same (expensive)
+-- SetBattlefieldScoreFaction refresh.
+function Collector:TryCaptureBaseline()
+    if ctx.baseline or not ctx.isEBG then return ctx.baseline ~= nil end
+    -- Kicked / left / grace-window: the reset can arrive late, so re-check.
+    if not (C_PvP and C_PvP.IsBattleground and C_PvP.IsBattleground()) then
+        return false
+    end
+    -- SetBattlefieldScoreFaction fires UPDATE_BATTLEFIELD_SCORE synchronously,
+    -- which re-enters this function — guard, exactly as PremadeAlert does.
+    if ctx.baselineBusy then return false end
+    -- Age is MATCH age, never "time since we started watching": a reporter who
+    -- joined late must not mistake their own arrival for the match start.
+    local age = C_PvP.GetActiveMatchDuration and C_PvP.GetActiveMatchDuration()
+    if type(age) ~= "number" or age < BASELINE_MIN_AGE_SEC then return false end
+
+    ctx.baselineBusy = true
+    if SetBattlefieldScoreFaction then pcall(SetBattlefieldScoreFaction, -1) end
+    if RequestBattlefieldScoreData then pcall(RequestBattlefieldScoreData) end
+    local n = (GetNumBattlefieldScores and GetNumBattlefieldScores()) or 0
+    local rows, seen = { [0] = 0, [1] = 0 }, {}
+    for i = 1, n do
+        local info = C_PvP.GetScoreInfo and C_PvP.GetScoreInfo(i)
+        if info and (info.faction == 0 or info.faction == 1) then
+            local nm = scoreName(info.name)   -- nil when secret/unqualifiable
+            if nm and not seen[nm] then
+                seen[nm] = info.faction
+                rows[info.faction] = rows[info.faction] + 1
+            end
+        end
+    end
+    ctx.baselineBusy = false
+
+    if rows[0] < BASELINE_MIN_ROWS_SIDE or rows[1] < BASELINE_MIN_ROWS_SIDE then
+        ctx.baselineStreak = 0
+        return false
+    end
+    -- Require the near-complete board to hold across consecutive observations
+    -- so one lucky read of a still-filling cache cannot become the baseline.
+    ctx.baselineStreak = (ctx.baselineStreak or 0) + 1
+    if ctx.baselineStreak < BASELINE_CONFIRM_TICKS then return false end
+
+    local players = {}
+    for nm, faction in pairs(seen) do
+        players[#players + 1] = { n = nm, f = faction }
+    end
+    ctx.baseline = {
+        ageSec  = math.floor(age),
+        rowsH   = rows[0],
+        rowsA   = rows[1],
+        players = players,
+    }
+    -- name → row, so the final snapshot can staple guids on in O(1).
+    ctx.baselineByName = {}
+    for _, row in ipairs(players) do ctx.baselineByName[row.n] = row end
+    dbg(("baseline captured age=%ds rows=%d/%d players=%d")
+        :format(math.floor(age), rows[0], rows[1], #players))
+    return true
+end
+
+-- Called from the UPDATE_BATTLEFIELD_SCORE handler (Main.lua). Cheap no-op
+-- once the baseline exists, which is the common case for most of a match.
+function Collector:OnBattlefieldScoreUpdate()
+    if ctx.baseline then return end
+    self:TryCaptureBaseline()
+end
+
 -- ── Scoreboard readiness ─────────────────────────────────────────────────
 -- Retail 12.0.x can hand back the final scoreboard with the combat numbers
 -- still flagged as SECRET values. They are truthy, so `x or 0` does not catch
@@ -616,6 +726,16 @@ function Collector:SnapshotMatch(statsSecret)
                 lastSeen = endedAt,
             }
 
+            -- Attach this match's guid to the baseline row of the same name.
+            -- Guids are readable again at match end, and resolving them HERE
+            -- keeps it match-local: no historical name→guid lookup that could
+            -- collide across renames, connected realms or reused names.
+            -- Players who left before the end simply keep a nil guid.
+            if ctx.baselineByName and fullName ~= "" then
+                local row = ctx.baselineByName[fullName]
+                if row then row.g = info.guid end
+            end
+
             ns.Database:AddSample(info.guid, meta, sample)
             added = added + 1
         end
@@ -665,6 +785,14 @@ function Collector:SnapshotMatch(statsSecret)
         mapName     = mapName,
         bracket     = ctx.isBlitz and "BLITZ" or ctx.isRated and "RATED" or ctx.isEpic and "EPIC" or "BG",
         duration    = duration,
+        -- When WE entered this match (addon ≥ 0.9.33), not when the battle
+        -- started. The two differ on a late join: C_PvP.GetActiveMatchDuration
+        -- measures the BATTLE, so `endedAt - duration` can reach back before we
+        -- were even here — and the server's "one reporter can't be in two
+        -- matches at once" check then quarantines a perfectly real back-to-back
+        -- match. nil after a /reload mid-game (ctx is wiped and OnMatchActive
+        -- won't fire again): the server falls back to duration, as before.
+        startedAt   = ctx.startedAt,
         winner      = winner,
         teamSize    = teamSize,
         endedAt     = endedAt,
@@ -679,6 +807,11 @@ function Collector:SnapshotMatch(statsSecret)
         -- still SECRET when we captured. > 0 ⇒ the server does not judge
         -- anyone by this scoreboard. nil for a manual /piq snapshot.
         statsSecret   = statsSecret,
+        -- Who was on the board before substitutions started (addon ≥ 0.9.33),
+        -- names only — the one thing that stays readable mid-match. nil when
+        -- the scoreboard never demonstrably finished loading (short match,
+        -- /reload mid-game, late join): absent evidence beats invented.
+        baseline      = ctx.baseline,
     })
 
     if ns.Deserter then ns.Deserter:Reset() end
