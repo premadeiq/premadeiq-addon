@@ -86,23 +86,35 @@ function Core.BuildCatalogIndex(catalog, realm)
     return index
 end
 
-function Core.FilterRoster(rows, catalogIndex, myFaction, realm)
+-- Both teams, tagged with which side of the scoreboard they sit on.
+--
+-- `mySide` is the viewer's own team in the scoreboard's 0=Horde/1=Alliance
+-- space (GetBattlefieldArenaFaction — see PremadeTargets.lua). A row whose
+-- `faction` is missing is dropped rather than guessed: PremadeAlert can afford
+-- the permissive "unreadable → treat as enemy" fallback because over-warning is
+-- harmless there, but here the same guess would file a teammate under the enemy
+-- heading, which is worse than not listing them at all.
+--
+-- `myCanonicalName`, when known, drops the viewer's own row: a button that
+-- targets yourself is useless, and owners do appear in the catalog.
+function Core.FilterRoster(rows, catalogIndex, mySide, realm, myCanonicalName)
     local players, seen = {}, {}
     if type(rows) ~= "table" or type(catalogIndex) ~= "table" then return players end
+    if mySide == nil then return players end
 
     for _, row in ipairs(rows) do
         if type(row) == "table" and validName(row.name) then
             local key = Core.NormalizeName(row.name, realm)
             local catalogEntry = key and catalogIndex[key]
-            local isEnemy = myFaction ~= nil and row.faction ~= nil and row.faction ~= myFaction
-            if catalogEntry and isEnemy and not seen[key] then
+            local sideKnown = row.faction ~= nil
+            if catalogEntry and sideKnown and not seen[key] and key ~= myCanonicalName then
                 seen[key] = true
                 players[#players + 1] = {
                     name = row.name,
                     canonicalName = key,
                     classToken = row.classToken,
-                    role = row.role,
                     faction = row.faction,
+                    side = (row.faction == mySide) and "ally" or "enemy",
                     isLeader = catalogEntry.isLeader and true or false,
                     groups = catalogEntry.groups,
                 }
@@ -110,7 +122,11 @@ function Core.FilterRoster(rows, catalogIndex, myFaction, realm)
         end
     end
 
+    -- Enemies first (the side you act on), then your own team; leaders head each
+    -- section, the rest stay alphabetical so the grid does not reshuffle between
+    -- scans.
     table.sort(players, function(a, b)
+        if a.side ~= b.side then return a.side == "enemy" end
         if a.isLeader ~= b.isLeader then return a.isLeader end
         return a.canonicalName < b.canonicalName
     end)
@@ -146,12 +162,16 @@ function Core.ComputeLayout(count, maxColumns)
     return layout, columns, rows
 end
 
+-- Side is part of the signature: the same player moving between the enemy and
+-- ally sections has to count as a changed secure state, otherwise the deferred
+-- combat update would decide nothing happened and leave them under the wrong
+-- heading.
 function Core.PlayerSignature(players)
-    local names = {}
+    local parts = {}
     for i, player in ipairs(players or {}) do
-        names[i] = tostring(player.name or "")
+        parts[i] = tostring(player.name or "") .. "\30" .. tostring(player.side or "")
     end
-    return table.concat(names, "\31")
+    return table.concat(parts, "\31")
 end
 
 function Core.ShouldDeferSecureUpdate(inCombat, currentSignature, players)

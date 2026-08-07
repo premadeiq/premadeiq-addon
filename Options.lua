@@ -63,9 +63,86 @@ cbPremadeSound:SetScript("OnClick", function(self)
     ns.Database:SetSetting("premadeSound", self:GetChecked() and true or false)
 end)
 
+-- ---- Targets panel sizing -------------------------------------------
+-- Stepper rows rather than sliders or a dropdown: UIDropDownMenu is gone in
+-- retail 11.0+, and UIPanelButtonTemplate is the one control this file already
+-- proves is alive. Values are read lazily inside refreshTargetsRow / OnShow —
+-- never at file scope, where ns.Database.db does not exist yet.
+local targetsHeader = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalMed1")
+targetsHeader:SetPoint("TOPLEFT", cbPremadeSound, "BOTTOMLEFT", 0, -24)
+targetsHeader:SetText(L["OptTargetsHeader"])
+targetsHeader:SetTextColor(1, 0.82, 0)
+
+local function makeStepperRow(anchor, offsetY, labelText, tooltip, onStep, format)
+    local row = { format = format, onStep = onStep }
+
+    local caption = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    caption:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, offsetY)
+    caption:SetText(labelText)
+    caption:SetJustifyH("LEFT")
+    row.caption = caption
+
+    local minus = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    minus:SetSize(24, 22)
+    minus:SetPoint("LEFT", caption, "LEFT", 150, 0)
+    minus:SetText("-")
+
+    local value = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    value:SetPoint("LEFT", minus, "RIGHT", 8, 0)
+    value:SetWidth(56)
+    value:SetJustifyH("CENTER")
+    row.value = value
+
+    local plus = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    plus:SetSize(24, 22)
+    plus:SetPoint("LEFT", value, "RIGHT", 8, 0)
+    plus:SetText("+")
+
+    row.anchorFrame = minus
+
+    function row:Refresh()
+        local targets = ns.PremadeTargets
+        if not targets then
+            self.value:SetText("-")
+            return
+        end
+        self.value:SetText(self.format(targets))
+    end
+
+    minus:SetScript("OnClick", function() row.onStep(-1); row:Refresh() end)
+    plus:SetScript("OnClick", function() row.onStep(1); row:Refresh() end)
+    for _, button in ipairs({ minus, plus }) do
+        button.tooltipText = tooltip
+        button:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText(tooltip, nil, nil, nil, nil, true)
+            GameTooltip:Show()
+        end)
+        button:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    end
+
+    return row
+end
+
+local scaleRow = makeStepperRow(
+    targetsHeader, -10, L["OptTargetsScale"], L["OptTargetsScaleTooltip"],
+    function(delta)
+        if ns.PremadeTargets then ns.PremadeTargets:AdjustScale(delta) end
+    end,
+    function(targets) return ("%d%%"):format(math.floor(targets:ScaleSetting() * 100 + 0.5)) end
+)
+
+local columnsRow = makeStepperRow(
+    scaleRow.anchorFrame, -6, L["OptTargetsColumns"], L["OptTargetsColumnsTooltip"],
+    function(delta)
+        if ns.PremadeTargets then ns.PremadeTargets:AdjustColumns(delta) end
+    end,
+    function(targets) return tostring(targets:ColumnSetting()) end
+)
+
 -- ---- Stats block ----------------------------------------------------
 local statsHeader = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalMed1")
-statsHeader:SetPoint("TOPLEFT", cbPremadeSound, "BOTTOMLEFT", 0, -24)
+statsHeader:SetPoint("TOPLEFT", columnsRow.anchorFrame, "BOTTOMLEFT", 0, -24)
 statsHeader:SetText(L["OptStatsHeader"])
 statsHeader:SetTextColor(1, 0.82, 0)
 
@@ -129,6 +206,8 @@ panel:SetScript("OnShow", function()
     -- Premade toggles default ON: only an explicit ``false`` unchecks them.
     cbPremade:SetChecked(not ns.Database or ns.Database:GetSetting("premadeAlert") ~= false)
     cbPremadeSound:SetChecked(not ns.Database or ns.Database:GetSetting("premadeSound") ~= false)
+    scaleRow:Refresh()
+    columnsRow:Refresh()
 
     local players = ns.Database and ns.Database:CountPlayers() or 0
     local samples = ns.Database and ns.Database:CountSamples() or 0

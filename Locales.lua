@@ -44,6 +44,21 @@ local en = {
     ["PremadeTargetMember"]    = "Known premade member",
     ["PremadeTargetGroups"]    = "Premades",
     ["PremadeTargetClick"]     = "Left-click: target this player. Right-click: set focus (keeps your current target)",
+    ["PremadeTargetsEnemySection"] = "Enemy team",
+    ["PremadeTargetsAllySection"]  = "Your team",
+    ["PremadeTargetsEnemyShort"]   = "enemy",
+    ["PremadeTargetsAllyShort"]    = "your team",
+    ["PremadeTargetSideEnemy"]     = "On the enemy team",
+    ["PremadeTargetSideAlly"]      = "On your team",
+    ["PremadeTargetsMinimize"]     = "Minimize to a small button",
+    ["PremadeTargetsTrayHint"]     = "Left-click: restore the panel. Drag to move.",
+
+    -- Options: targets panel sizing
+    ["OptTargetsHeader"]        = "Premade targets panel",
+    ["OptTargetsScale"]         = "Panel size",
+    ["OptTargetsColumns"]       = "Columns",
+    ["OptTargetsScaleTooltip"]  = "Scale of the in-match panel listing known premade members of both teams.",
+    ["OptTargetsColumnsTooltip"] = "How many name columns each team section is laid out in.",
 
     -- Commands help
     ["CmdHelp"] = "|cff33ff99PremadeIQ|r commands:\n"
@@ -123,6 +138,20 @@ local ruRU = {
     ["PremadeTargetMember"]    = "Известный участник премейда",
     ["PremadeTargetGroups"]    = "Премейды",
     ["PremadeTargetClick"]     = "ЛКМ: выбрать в цель. ПКМ: назначить фокусом (текущая цель сохранится)",
+    ["PremadeTargetsEnemySection"] = "Команда противника",
+    ["PremadeTargetsAllySection"]  = "Твоя команда",
+    ["PremadeTargetsEnemyShort"]   = "у противника",
+    ["PremadeTargetsAllyShort"]    = "у тебя",
+    ["PremadeTargetSideEnemy"]     = "В команде противника",
+    ["PremadeTargetSideAlly"]      = "В твоей команде",
+    ["PremadeTargetsMinimize"]     = "Свернуть в маленькую кнопку",
+    ["PremadeTargetsTrayHint"]     = "ЛКМ — развернуть панель. Перетащить для перемещения.",
+
+    ["OptTargetsHeader"]        = "Панель участников премейдов",
+    ["OptTargetsScale"]         = "Размер панели",
+    ["OptTargetsColumns"]       = "Колонки",
+    ["OptTargetsScaleTooltip"]  = "Масштаб панели, которая в бою показывает известных участников премейдов обеих команд.",
+    ["OptTargetsColumnsTooltip"] = "Сколько колонок с именами в каждой секции.",
 
     ["CmdHelp"] = "|cff33ff99PremadeIQ|r команды:\n"
         .. "  /piq status           — размер базы\n"
@@ -291,6 +320,14 @@ for _, k in ipairs({
     "PremadeTargetMember",
     "PremadeTargetGroups",
     "PremadeTargetClick",
+    "PremadeTargetsEnemySection",
+    "PremadeTargetsAllySection",
+    "PremadeTargetsEnemyShort",
+    "PremadeTargetsAllyShort",
+    "PremadeTargetSideEnemy",
+    "PremadeTargetSideAlly",
+    "PremadeTargetsMinimize",
+    "PremadeTargetsTrayHint",
 }) do
     L[k] = en[k]
 end

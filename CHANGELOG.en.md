@@ -2,6 +2,30 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.34] — 2026-08-08
+
+### Added
+- **The premade targets panel now covers both teams.** It used to list known
+  premade players on the enemy side only; there is now a second section, "Your
+  team". Buttons behave identically in both: left-click to target, right-click
+  to set focus. An empty section is not drawn at all.
+- **The panel minimizes to a small button.** The close button in the top-right
+  corner puts the panel away entirely and leaves a compact button with the
+  counts in its place — drag it anywhere, click it to bring the panel back. It
+  works in combat, not just outside it.
+- **Size settings** (Esc → Options → AddOns → PremadeIQ): panel scale 70–150%
+  and 1–6 name columns.
+
+### Fixed
+- **The leader mark no longer renders as an empty box.** The stars in the list
+  (and the separators in the header) now use characters the game font can
+  actually draw.
+- **Long names are no longer clipped.** Column width is measured from the
+  longest name on screen, so a full `Name-Realm` fits on its plate.
+- **Your own team is identified correctly under mercenary mode.** The side now
+  comes from the same battlefield API the scoreboard itself uses rather than
+  from the character's faction, which would swap the two sections around.
+
 ## [0.9.33] — 2026-08-07
 
 ### Fixed

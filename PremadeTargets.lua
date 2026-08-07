@@ -3,13 +3,27 @@ local L = ns.L
 local Core = ns.PremadeTargetsCore
 
 local Targets = {
-    MAX_BUTTONS = 40,
-    MAX_COLUMNS = 3,
-    BUTTON_WIDTH = 152,
+    -- 40v40 is the largest Epic battleground, so 80 rows is the hard ceiling of
+    -- what a scoreboard can ever produce. Secure buttons can only be created out
+    -- of combat, hence the whole pool up front.
+    MAX_BUTTONS = 80,
+    DEFAULT_COLUMNS = 3,
+    MIN_COLUMNS = 1,
+    MAX_COLUMNS = 6,
+    -- Floor, not the width: the real column width is measured from the longest
+    -- name on screen so a cross-realm Name-Realm never gets clipped.
+    MIN_BUTTON_WIDTH = 152,
+    LABEL_PADDING = 18,
+    MIN_PANEL_WIDTH = 320,
     BUTTON_HEIGHT = 22,
     BUTTON_GAP = 3,
     PANEL_PADDING = 7,
     HEADER_HEIGHT = 24,
+    SECTION_HEADER_HEIGHT = 17,
+    SECTION_GAP = 6,
+    MIN_SCALE = 0.70,
+    MAX_SCALE = 1.50,
+    SCALE_STEP = 0.05,
     SCAN_THROTTLE_SEC = 1.0,
     -- Asking the server for fresh scoreboard data is rate-limited separately
     -- from reading the cache it fills: the ticker/startup burst request, the
@@ -23,12 +37,13 @@ local Targets = {
     -- survives the throttle without needing force.
     STARTUP_BURST = { 0.5, 1.5, 3, 6, 10 },
     _buttons = {},
+    _sectionHeaders = {},
     _signature = "",
     _lastScanAt = 0,
     _lastRequestAt = 0,
     _scanning = false,
     _headerStale = false,
-    _headerCount = 0,
+    _headerCounts = { enemy = 0, ally = 0 },
     _pendingSignature = nil,
     _timers = {},
     _generation = 0,
@@ -39,15 +54,42 @@ ns.PremadeTargets = Targets
 -- Marker appended to the header while a roster update waits for combat to end.
 local STALE_MARK = "•"
 
+-- Enemies first: that is the side you act on. Rows carrying no side at all are
+-- treated as enemies, which keeps pre-side callers (and the older fixtures)
+-- rendering exactly as they used to.
+local SECTIONS = { "enemy", "ally" }
+
 local function secret(value)
     return issecretvalue and issecretvalue(value)
 end
 
-local function playerFaction()
+-- The viewer's own team in the scoreboard's own 0=Horde/1=Alliance space.
+-- GetBattlefieldArenaFaction is what Blizzard's scoreboard itself uses
+-- (Blizzard_PVPMatch/PVPMatchResults.lua), so it is right under mercenary mode —
+-- where UnitFactionGroup reports the character's faction, not the team actually
+-- being played — and in non-factional matches where the value is a team index.
+-- UnitFactionGroup stays as the fallback for the moments the battlefield API has
+-- nothing to say (outside a match, or before the scoreboard exists).
+local function currentSide()
+    if GetBattlefieldArenaFaction then
+        local ok, value = pcall(GetBattlefieldArenaFaction)
+        if ok and type(value) == "number" and not secret(value) then return value end
+    end
     local faction = UnitFactionGroup and UnitFactionGroup("player")
     if faction == "Alliance" then return 1 end
     if faction == "Horde" then return 0 end
     return nil
+end
+
+-- Own canonical name, used only to drop the viewer's own row from the list.
+-- UnitName is SecretWhenUnitIdentityRestricted, so a secret value here simply
+-- means "exclude nobody" rather than letting a tainted string reach the string
+-- library inside Core.NormalizeName.
+local function ownCanonicalName(realm)
+    if not UnitName then return nil end
+    local ok, name = pcall(UnitName, "player")
+    if not ok or secret(name) or type(name) ~= "string" or name == "" then return nil end
+    return Core.NormalizeName(name, realm)
 end
 
 local function displayName(name)
@@ -66,10 +108,41 @@ local function targetName(name)
     return name
 end
 
+-- ASCII only. The 12.0.x UI font draws Latin-1 but not U+2605 BLACK STAR or
+-- U+00B7 MIDDLE DOT — both came out as empty boxes in game.
+local LEADER_MARK = "* "
+
+local function labelText(player)
+    return (player.isLeader and LEADER_MARK or "") .. displayName(player.name)
+end
+
 local function copyPlayers(players)
     local copy = {}
     for i, player in ipairs(players or {}) do copy[i] = player end
     return copy
+end
+
+-- Settings live in PremadeIQ_DB.settings, the same table the options panel uses.
+-- Read straight from the SavedVariable rather than through ns.Database: this
+-- module's ADDON_LOADED handler is registered before Main.lua's, so Database:Init
+-- has not run yet the first time the panel builds itself. Writes prefer the
+-- Database accessor when it is live so both paths stay in sync.
+local function getSetting(key, default)
+    local db = PremadeIQ_DB
+    local settings = (type(db) == "table") and db.settings or nil
+    local value = settings and settings[key]
+    if value == nil then return default end
+    return value
+end
+
+local function setSetting(key, value)
+    if ns.Database and ns.Database.SetSetting and ns.Database.db then
+        ns.Database:SetSetting(key, value)
+        return
+    end
+    PremadeIQ_DB = PremadeIQ_DB or {}
+    PremadeIQ_DB.settings = PremadeIQ_DB.settings or {}
+    PremadeIQ_DB.settings[key] = value
 end
 
 local function savePanelPosition(panel)
@@ -94,12 +167,47 @@ local function restorePanelPosition(panel)
     end
 end
 
+local function saveTrayPosition(tray)
+    if InCombatLockdown and InCombatLockdown() then return end
+    local point, _, relativePoint, x, y = tray:GetPoint()
+    PremadeIQ_DB = PremadeIQ_DB or {}
+    PremadeIQ_DB.premadeTargetsTrayPos = {
+        point = point,
+        relativePoint = relativePoint,
+        x = x,
+        y = y,
+    }
+end
+
+local function restoreTrayPosition(tray)
+    local pos = PremadeIQ_DB and PremadeIQ_DB.premadeTargetsTrayPos
+    tray:ClearAllPoints()
+    if type(pos) == "table" and type(pos.point) == "string" then
+        tray:SetPoint(pos.point, UIParent, pos.relativePoint or pos.point, pos.x or 0, pos.y or 0)
+    else
+        -- Same corner the panel defaults to, so the first minimize leaves the
+        -- button where the panel just was.
+        tray:SetPoint("RIGHT", UIParent, "RIGHT", -260, 40)
+    end
+end
+
 -- Idle look. Leaders get a warm, slightly brighter plate so they read as the
--- priority entry without needing the star to be spotted first.
+-- priority entry without needing the star to be spotted first. Your own team is
+-- cool-toned instead: same information, visibly not the side you shoot at.
 local function applyIdleStyle(button)
-    if button.playerInfo and button.playerInfo.isLeader then
-        button:SetBackdropColor(0.17, 0.14, 0.07, 0.86)
-        button:SetBackdropBorderColor(0.62, 0.50, 0.22, 0.75)
+    local player = button.playerInfo
+    local ally = player and player.side == "ally"
+    if player and player.isLeader then
+        if ally then
+            button:SetBackdropColor(0.08, 0.13, 0.20, 0.86)
+            button:SetBackdropBorderColor(0.32, 0.56, 0.82, 0.80)
+        else
+            button:SetBackdropColor(0.17, 0.14, 0.07, 0.86)
+            button:SetBackdropBorderColor(0.62, 0.50, 0.22, 0.75)
+        end
+    elseif ally then
+        button:SetBackdropColor(0.08, 0.10, 0.15, 0.82)
+        button:SetBackdropBorderColor(0.24, 0.36, 0.52, 0.55)
     else
         button:SetBackdropColor(0.11, 0.11, 0.14, 0.82)
         button:SetBackdropBorderColor(0.30, 0.30, 0.36, 0.55)
@@ -117,6 +225,11 @@ local function showTooltip(button)
     GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
     GameTooltip:SetText(player.canonicalName or player.name)
     GameTooltip:AddLine(player.isLeader and L["PremadeTargetLeader"] or L["PremadeTargetMember"], 1, 0.82, 0)
+    if player.side == "ally" then
+        GameTooltip:AddLine(L["PremadeTargetSideAlly"], 0.55, 0.75, 1)
+    else
+        GameTooltip:AddLine(L["PremadeTargetSideEnemy"], 1, 0.62, 0.52)
+    end
     if player.groups and #player.groups > 0 then
         GameTooltip:AddLine(L["PremadeTargetGroups"] .. ": " .. table.concat(player.groups, ", "), 0.8, 0.8, 0.8, true)
     end
@@ -124,14 +237,14 @@ local function showTooltip(button)
     GameTooltip:Show()
 end
 
-local function makeButton(index, panel)
+local function makeButton(index, parent)
     local button = CreateFrame(
         "Button",
         "PremadeIQTargetButton" .. index,
-        panel,
+        parent,
         "SecureActionButtonTemplate,BackdropTemplate"
     )
-    button:SetSize(Targets.BUTTON_WIDTH, Targets.BUTTON_HEIGHT)
+    button:SetSize(Targets.MIN_BUTTON_WIDTH, Targets.BUTTON_HEIGHT)
     -- SecureActionButton_OnClick (Blizzard SecureTemplates.lua) decides which
     -- click edge fires the action from the "useOnKeyDown" attribute, falling
     -- back to the ActionButtonUseKeyDown CVar when the attribute is unset.
@@ -154,6 +267,9 @@ local function makeButton(index, panel)
     label:SetPoint("LEFT", button, "LEFT", 7, 0)
     label:SetPoint("RIGHT", button, "RIGHT", -5, 0)
     label:SetJustifyH("LEFT")
+    -- The button is a single 22px row: without this an overlong name wraps into
+    -- a clipped second line instead of staying on one.
+    if label.SetWordWrap then label:SetWordWrap(false) end
     button.label = label
 
     button:SetScript("OnEnter", function(self)
@@ -205,13 +321,252 @@ function Targets:Initialize()
     panel.header = header
 
     self._panel = panel
+
+    -- Everything collapsible lives under `body`, and `body` is deliberately
+    -- created from a secure template. Hiding a frame that parents
+    -- SecureActionButtons is a protected action, so the collapse click has to
+    -- run inside a restricted snippet — and RestrictedFrames only resolves a
+    -- usable frame handle in combat when the target frame is itself protected
+    -- (GetPossiblyForbiddenHandleFrame). A plain Frame here would raise
+    -- "Invalid frame handle" during exactly the lockdown the button exists for.
+    local body = CreateFrame("Frame", "PremadeIQTargetsBody", panel, "SecureHandlerBaseTemplate")
+    body:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, 0)
+    body:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", 0, 0)
+    self._body = body
+
+    local toggle = CreateFrame("Button", "PremadeIQTargetsToggle", panel, "SecureHandlerClickTemplate")
+    toggle:SetSize(18, 18)
+    toggle:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -6, -4)
+    toggle:RegisterForClicks("AnyUp")
+    -- SetFrameRef itself throws in combat, which is fine: Initialize is already
+    -- gated on being out of combat.
+    toggle:SetFrameRef("body", body)
+    toggle:SetAttribute("_onclick", [[
+        self:GetFrameRef("body"):Hide()
+    ]])
+    -- PostClick, never OnClick: SecureHandlerClickTemplate keeps its own
+    -- dispatch in OnClick, and overwriting it would stop the snippet above from
+    -- ever running. Everything PostClick does (swapping panel for tray, saving
+    -- the setting) touches unprotected frames only and is legal mid-combat.
+    toggle:SetScript("PostClick", function() Targets:OnMinimized() end)
+    toggle:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(L["PremadeTargetsMinimize"])
+        GameTooltip:Show()
+    end)
+    toggle:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    local caret = toggle:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    caret:SetPoint("CENTER", toggle, "CENTER", 0, 0)
+    caret:SetTextColor(1, 0.82, 0.15)
+    caret:SetText("X")
+    toggle.caret = caret
+    self._toggle = toggle
+
+    -- Minimized state is a separate little button, the way REZAL Raid Caller
+    -- does it: the panel goes away entirely rather than shrinking to a header
+    -- strip. The tray hangs off UIParent, not the panel — a child would be
+    -- hidden along with the very frame it is meant to replace — and it keeps its
+    -- own dragged position, so folding and unfolding never moves the panel.
+    --
+    -- Two frames, deliberately: the tray itself must stay UNPROTECTED, because
+    -- showing and hiding it mid-combat is the entire point, and a frame built
+    -- from SecureHandlerClickTemplate is protected (that template inherits
+    -- SecureFrameTemplate, protected="true") — Show/Hide on it would be blocked
+    -- in exactly the lockdown we need. So the visible tray is a plain Frame and
+    -- a protected click-catcher sits on top of it to run the snippet.
+    local tray = CreateFrame("Frame", "PremadeIQTargetsTray", UIParent, "BackdropTemplate")
+    tray:SetSize(72, 22)
+    tray:SetFrameStrata("HIGH")
+    tray:SetClampedToScreen(true)
+    tray:SetMovable(true)
+    tray:EnableMouse(true)
+    tray:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8X8",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        edgeSize = 12,
+        insets = { left = 3, right = 3, top = 3, bottom = 3 },
+    })
+    tray:SetBackdropColor(0.05, 0.05, 0.07, 0.86)
+    tray:SetBackdropBorderColor(0.52, 0.45, 0.32, 0.90)
+    restoreTrayPosition(tray)
+    local trayLabel = tray:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    trayLabel:SetPoint("CENTER", tray, "CENTER", 0, 0)
+    trayLabel:SetTextColor(1, 0.82, 0.15)
+    tray.label = trayLabel
+    tray:Hide()
+    self._tray = tray
+
+    -- Restoring has to un-hide `body`, which is protected, so the click needs a
+    -- snippet; the insecure PostClick half only swaps which frame is visible.
+    -- Dragging lives here too — this button covers the tray, so it is what the
+    -- mouse actually reaches — but it moves its unprotected parent, never
+    -- itself.
+    local trayClick = CreateFrame("Button", "PremadeIQTargetsTrayButton", tray,
+        "SecureHandlerClickTemplate")
+    trayClick:SetAllPoints(tray)
+    trayClick:RegisterForClicks("AnyUp")
+    trayClick:RegisterForDrag("LeftButton")
+    trayClick:SetFrameRef("body", body)
+    trayClick:SetAttribute("_onclick", [[
+        self:GetFrameRef("body"):Show()
+    ]])
+    trayClick:SetScript("PostClick", function() Targets:OnRestored() end)
+    trayClick:SetScript("OnDragStart", function()
+        if not (InCombatLockdown and InCombatLockdown()) then tray:StartMoving() end
+    end)
+    trayClick:SetScript("OnDragStop", function()
+        if InCombatLockdown and InCombatLockdown() then return end
+        tray:StopMovingOrSizing()
+        saveTrayPosition(tray)
+    end)
+    trayClick:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:SetText(L["PremadeTargetsHeader"])
+        GameTooltip:AddLine(L["PremadeTargetsTrayHint"], 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    trayClick:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    self._trayClick = trayClick
+
+    -- Off-screen ruler used to size columns to the longest name actually shown.
+    local measure = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    measure:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, 0)
+    if measure.Hide then measure:Hide() end
+    self._measure = measure
+
+    self._sectionHeaders = {}
+    for _, side in ipairs(SECTIONS) do
+        local sectionHeader = body:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        sectionHeader:SetJustifyH("LEFT")
+        if side == "ally" then
+            sectionHeader:SetTextColor(0.55, 0.75, 1)
+        else
+            sectionHeader:SetTextColor(1, 0.62, 0.52)
+        end
+        if sectionHeader.Hide then sectionHeader:Hide() end
+        self._sectionHeaders[side] = sectionHeader
+    end
+
     self._buttons = {}
     for i = 1, self.MAX_BUTTONS do
-        self._buttons[i] = makeButton(i, panel)
+        self._buttons[i] = makeButton(i, body)
     end
+
+    if self:IsMinimized() then body:Hide() end
+    self:ApplyScale()
+    self:RenderTray()
     panel:Hide()
     self._needsInitialize = nil
     return true
+end
+
+function Targets:IsMinimized()
+    return getSetting("targetsMinimized", false) == true
+end
+
+-- Tray caption doubles as the whole readout while minimized, so it carries the
+-- same counts as the panel header.
+function Targets:RenderTray()
+    local tray = self._tray
+    if not tray or not tray.label then return end
+    local counts = self._headerCounts or { enemy = 0, ally = 0 }
+    local text = "PIQ " .. (counts.enemy or 0)
+    if (counts.ally or 0) > 0 then text = text .. " / " .. counts.ally end
+    tray.label:SetText(text)
+end
+
+-- Both of these run from PostClick, after the secure snippet has already
+-- hidden/shown `body` (the only protected frame involved). Everything here
+-- touches unprotected frames, so minimizing works mid-combat.
+function Targets:OnMinimized()
+    setSetting("targetsMinimized", true)
+    self:UpdateVisibility()
+end
+
+function Targets:OnRestored()
+    setSetting("targetsMinimized", false)
+    self:UpdateVisibility()
+end
+
+-- Panel and tray are mutually exclusive, and neither shows when there is
+-- nothing to list — a lone tray button in an empty battleground would be noise.
+function Targets:UpdateVisibility()
+    local panel, tray = self._panel, self._tray
+    if not panel then return end
+    local counts = self._headerCounts or { enemy = 0, ally = 0 }
+    local hasRows = ((counts.enemy or 0) + (counts.ally or 0)) > 0
+    self:RenderTray()
+    if not hasRows then
+        panel:Hide()
+        if tray then tray:Hide() end
+    elseif self:IsMinimized() then
+        panel:Hide()
+        if tray then tray:Show() end
+    else
+        panel:Show()
+        if tray then tray:Hide() end
+    end
+end
+
+function Targets:ColumnSetting()
+    local columns = tonumber(getSetting("targetsColumns", self.DEFAULT_COLUMNS)) or self.DEFAULT_COLUMNS
+    columns = math.floor(columns)
+    if columns < self.MIN_COLUMNS then columns = self.MIN_COLUMNS end
+    if columns > self.MAX_COLUMNS then columns = self.MAX_COLUMNS end
+    return columns
+end
+
+function Targets:ScaleSetting()
+    local scale = tonumber(getSetting("targetsScale", 1.0)) or 1.0
+    if scale < self.MIN_SCALE then scale = self.MIN_SCALE end
+    if scale > self.MAX_SCALE then scale = self.MAX_SCALE end
+    return scale
+end
+
+-- Scaling the panel drags its secure children along, so it waits for combat to
+-- end rather than risking a blocked action. OnPlayerRegenEnabled applies this
+-- before the roster, because that branch returns early.
+function Targets:ApplyScale()
+    local panel = self._panel
+    if not panel then return false end
+    if InCombatLockdown and InCombatLockdown() then
+        self._pendingScale = true
+        return false
+    end
+    self._pendingScale = nil
+    local scale = self:ScaleSetting()
+    if panel.SetScale then panel:SetScale(scale) end
+    -- The tray follows the same setting: it is the panel while minimized.
+    if self._tray and self._tray.SetScale then self._tray:SetScale(scale) end
+    return true
+end
+
+-- Column width is measured, not assumed: `displayName` keeps the realm suffix,
+-- and a name like Mæhælænæbæs-TwistingNether is far wider than the old fixed
+-- 152px plate, which silently truncated it with an ellipsis.
+function Targets:MeasureButtonWidth(players)
+    local width = self.MIN_BUTTON_WIDTH
+    local ruler = self._measure
+    if not ruler or not ruler.SetText or not ruler.GetStringWidth then return width end
+    for _, player in ipairs(players or {}) do
+        ruler:SetText(labelText(player))
+        local measured = ruler:GetStringWidth()
+        if type(measured) == "number" then
+            local needed = math.ceil(measured + self.LABEL_PADDING)
+            if needed > width then width = needed end
+        end
+    end
+    return width
+end
+
+local function splitSections(players)
+    local grouped = { enemy = {}, ally = {} }
+    for _, player in ipairs(players or {}) do
+        local side = (player.side == "ally") and "ally" or "enemy"
+        local list = grouped[side]
+        list[#list + 1] = player
+    end
+    return grouped
 end
 
 function Targets:ApplyPlayers(players)
@@ -248,37 +603,78 @@ function Targets:ApplyPlayers(players)
     end
 
     local count = math.min(#players, self.MAX_BUTTONS)
-    local layout, columns, rows = Core.ComputeLayout(count, self.MAX_COLUMNS)
-    for i, button in ipairs(self._buttons) do
-        if i <= count then
-            local player = players[i]
-            local secureName = targetName(player.name)
-            local macro = Core.TargetMacro(secureName)
-            local focusMacro = Core.FocusMacro(secureName)
-            local pos = layout[i]
-            button:ClearAllPoints()
-            button:SetPoint(
-                "TOPLEFT",
-                self._panel,
-                "TOPLEFT",
-                self.PANEL_PADDING + (pos.column - 1) * (self.BUTTON_WIDTH + self.BUTTON_GAP),
-                -(self.HEADER_HEIGHT + self.PANEL_PADDING + (pos.row - 1) * (self.BUTTON_HEIGHT + self.BUTTON_GAP))
-            )
-            button:SetAttribute("type1", macro and "macro" or nil)
-            button:SetAttribute("macrotext1", macro)
-            button:SetAttribute("type2", focusMacro and "macro" or nil)
-            button:SetAttribute("macrotext2", focusMacro)
-            button.playerInfo = player
-            applyIdleStyle(button)
-            button.label:SetText((player.isLeader and "★ " or "") .. displayName(player.name))
-            local color = player.classToken and RAID_CLASS_COLORS and RAID_CLASS_COLORS[player.classToken]
-            if color then
-                button.label:SetTextColor(color.r, color.g, color.b)
-            else
-                button.label:SetTextColor(0.92, 0.92, 0.92)
+    local grouped = splitSections(players)
+    local columns = self:ColumnSetting()
+    local buttonWidth = self:MeasureButtonWidth(players)
+    local index = 0
+    local widestColumns = 0
+    local y = self.HEADER_HEIGHT + self.PANEL_PADDING
+
+    for _, side in ipairs(SECTIONS) do
+        local list = grouped[side]
+        local sectionHeader = self._sectionHeaders[side]
+        if #list > 0 and index < self.MAX_BUTTONS then
+            if sectionHeader then
+                sectionHeader:ClearAllPoints()
+                sectionHeader:SetPoint("TOPLEFT", self._body, "TOPLEFT", self.PANEL_PADDING, -y)
+                if side == "ally" then
+                    sectionHeader:SetText(L["PremadeTargetsAllySection"] .. " (" .. #list .. ")")
+                else
+                    sectionHeader:SetText(L["PremadeTargetsEnemySection"] .. " (" .. #list .. ")")
+                end
+                sectionHeader:Show()
             end
-            button:Show()
-        else
+            y = y + self.SECTION_HEADER_HEIGHT
+
+            local layout, usedColumns, rows = Core.ComputeLayout(#list, columns)
+            if usedColumns > widestColumns then widestColumns = usedColumns end
+            for i, player in ipairs(list) do
+                index = index + 1
+                local button = self._buttons[index]
+                if button then
+                    local secureName = targetName(player.name)
+                    local macro = Core.TargetMacro(secureName)
+                    local focusMacro = Core.FocusMacro(secureName)
+                    local pos = layout[i]
+                    button:SetSize(buttonWidth, self.BUTTON_HEIGHT)
+                    button:ClearAllPoints()
+                    button:SetPoint(
+                        "TOPLEFT",
+                        self._body,
+                        "TOPLEFT",
+                        self.PANEL_PADDING + (pos.column - 1) * (buttonWidth + self.BUTTON_GAP),
+                        -(y + (pos.row - 1) * (self.BUTTON_HEIGHT + self.BUTTON_GAP))
+                    )
+                    button:SetAttribute("type1", macro and "macro" or nil)
+                    button:SetAttribute("macrotext1", macro)
+                    button:SetAttribute("type2", focusMacro and "macro" or nil)
+                    button:SetAttribute("macrotext2", focusMacro)
+                    button.playerInfo = player
+                    applyIdleStyle(button)
+                    button.label:SetText(labelText(player))
+                    local color = player.classToken and RAID_CLASS_COLORS and RAID_CLASS_COLORS[player.classToken]
+                    if color then
+                        button.label:SetTextColor(color.r, color.g, color.b)
+                    else
+                        button.label:SetTextColor(0.92, 0.92, 0.92)
+                    end
+                    button:Show()
+                end
+            end
+            y = y + rows * self.BUTTON_HEIGHT
+                + math.max(0, rows - 1) * self.BUTTON_GAP
+                + self.SECTION_GAP
+        elseif sectionHeader then
+            sectionHeader:Hide()
+        end
+    end
+
+    for i = index + 1, #self._buttons do
+        local button = self._buttons[i]
+        -- Only clear buttons that actually carry something: with an 80-strong
+        -- pool the blind version issued hundreds of pointless SetAttribute calls
+        -- on every scan, and scans run up to once a second.
+        if button.playerInfo then
             button:SetAttribute("type1", nil)
             button:SetAttribute("macrotext1", nil)
             button:SetAttribute("type2", nil)
@@ -292,36 +688,47 @@ function Targets:ApplyPlayers(players)
     self._pendingPlayers = nil
     self._pendingSignature = nil
     self._players = copyPlayers(players)
-    self._headerCount = count
+    self._headerCounts = { enemy = #grouped.enemy, ally = #grouped.ally }
     -- Cleared on BOTH branches below, including the hidden/zero-player one, so
     -- the marker can never survive a successful application.
     self._headerStale = false
 
-    if count == 0 then
-        self:RenderHeader()
-        self._panel:Hide()
-    else
-        local width = self.PANEL_PADDING * 2
-            + columns * self.BUTTON_WIDTH
-            + math.max(0, columns - 1) * self.BUTTON_GAP
-        local height = self.HEADER_HEIGHT + self.PANEL_PADDING * 2
-            + rows * self.BUTTON_HEIGHT
-            + math.max(0, rows - 1) * self.BUTTON_GAP
-        self._panel:SetSize(width, height)
-        self:RenderHeader()
-        self._panel:Show()
+    if count > 0 then
+        local width = math.max(
+            self.PANEL_PADDING * 2
+                + widestColumns * buttonWidth
+                + math.max(0, widestColumns - 1) * self.BUTTON_GAP,
+            self.MIN_PANEL_WIDTH
+        )
+        self._panel:SetSize(width, y - self.SECTION_GAP + self.PANEL_PADDING)
     end
+    self:RenderHeader()
+    -- Never a bare Show(): the panel stays hidden while the user has it
+    -- minimized, otherwise the next scoreboard tick would pop it back open.
+    self:UpdateVisibility()
     return true
 end
 
 -- Header is a FontString on a NON-secure frame, so SetText/SetTextColor stay
 -- legal in combat lockdown — that is what lets us flag a deferred update while
--- the secure buttons themselves cannot be touched. Always re-rendered from the
--- base string + count so the marker can never be appended twice.
+-- the secure buttons themselves cannot be touched, and what keeps the counts
+-- readable while the body is collapsed. Always re-rendered from the base string
+-- + counts so the marker can never be appended twice.
 function Targets:RenderHeader()
     local panel = self._panel
     if not panel or not panel.header then return end
-    local text = L["PremadeTargetsHeader"] .. " (" .. (self._headerCount or 0) .. ")"
+    local counts = self._headerCounts or { enemy = 0, ally = 0 }
+    -- A side with nobody on it is left out entirely rather than printed as
+    -- "enemy 0" — the panel below already omits that section.
+    local parts = {}
+    if (counts.enemy or 0) > 0 then
+        parts[#parts + 1] = L["PremadeTargetsEnemyShort"] .. " " .. counts.enemy
+    end
+    if (counts.ally or 0) > 0 then
+        parts[#parts + 1] = L["PremadeTargetsAllyShort"] .. " " .. counts.ally
+    end
+    local text = L["PremadeTargetsHeader"]
+    if #parts > 0 then text = text .. ": " .. table.concat(parts, ", ") end
     if self._headerStale then
         panel.header:SetText(text .. " " .. STALE_MARK)
         panel.header:SetTextColor(0.80, 0.66, 0.28)
@@ -384,13 +791,11 @@ function Targets:RefreshFromScoreboard(force, requestData)
             local name = info.name
             local faction = info.faction
             local classToken = info.classToken
-            local role = info.role
             if not secret(name) and type(name) == "string" and name ~= "" then
                 rows[#rows + 1] = {
                     name = name,
                     faction = not secret(faction) and faction or nil,
                     classToken = not secret(classToken) and classToken or nil,
-                    role = not secret(role) and role or nil,
                 }
             end
         end
@@ -400,7 +805,7 @@ function Targets:RefreshFromScoreboard(force, requestData)
     -- Clear _scanning even if filtering or application throws: leaving it set
     -- would wedge every future scan behind the re-entry guard above.
     local ok, players = pcall(
-        Core.FilterRoster, rows, self:RebuildCatalog(), playerFaction(), realm
+        Core.FilterRoster, rows, self:RebuildCatalog(), currentSide(), realm, ownCanonicalName(realm)
     )
     self._scanning = false
     if not ok then return false end
@@ -409,6 +814,9 @@ end
 
 function Targets:OnPlayerRegenEnabled()
     if self._needsInitialize then self:Initialize() end
+    -- Before the roster branch: that one returns early, and a scale change
+    -- parked during combat would otherwise be dropped on the floor.
+    if self._pendingScale then self:ApplyScale() end
     if self._pendingPlayers then
         local players = self._pendingPlayers
         self._pendingPlayers = nil
@@ -416,6 +824,38 @@ function Targets:OnPlayerRegenEnabled()
         return self:ApplyPlayers(players)
     end
     return self:RefreshFromScoreboard(true, true)
+end
+
+-- Re-apply the current roster with new sizing settings. Out of combat only;
+-- the options panel is the sole caller.
+function Targets:RefreshLayout()
+    if not self._panel then return false end
+    self:ApplyScale()
+    if InCombatLockdown and InCombatLockdown() then return false end
+    -- The buttons already carry this roster, so the signature would suppress a
+    -- plain re-apply: clear it to force the geometry through.
+    self._signature = ""
+    return self:ApplyPlayers(self._players or {})
+end
+
+function Targets:AdjustScale(delta)
+    local value = self:ScaleSetting() + (tonumber(delta) or 0) * self.SCALE_STEP
+    -- Round to the step so repeated clicks cannot drift into 0.8500000001.
+    value = math.floor(value * 100 + 0.5) / 100
+    if value < self.MIN_SCALE then value = self.MIN_SCALE end
+    if value > self.MAX_SCALE then value = self.MAX_SCALE end
+    setSetting("targetsScale", value)
+    self:RefreshLayout()
+    return value
+end
+
+function Targets:AdjustColumns(delta)
+    local value = self:ColumnSetting() + (tonumber(delta) or 0)
+    if value < self.MIN_COLUMNS then value = self.MIN_COLUMNS end
+    if value > self.MAX_COLUMNS then value = self.MAX_COLUMNS end
+    setSetting("targetsColumns", value)
+    self:RefreshLayout()
+    return value
 end
 
 -- C_Timer.After gives no handle, so its callbacks outlive the match that
