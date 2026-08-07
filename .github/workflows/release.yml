@@ -36,11 +36,17 @@ jobs:
       - name: Release guard — built artifacts (pre-publish)
         run: python3 tools/check_release.py --zip .release
 
-      - name: Package & publish (CurseForge / Wago / GitHub Release)
+      # Wago is deliberately NOT uploaded from here. The Wago project was set up
+      # through Wago's own GitHub integration: it polls this repo's Releases and
+      # builds from .pkgmeta itself (confirmed 2026-08-07 — 0.9.33 appeared on
+      # addons.wago.io within ~25 min of the GitHub Release, with no token in CI).
+      # Setting WAGO_API_TOKEN would make the packager push the same version a
+      # second time and race their poll, so the variable is intentionally absent
+      # rather than merely unset — an empty secret is too easy to "fix" later.
+      - name: Package & publish (CurseForge + GitHub Release)
         uses: BigWigsMods/packager@v2
         env:
           CF_API_KEY:     ${{ secrets.CF_API_KEY }}
-          WAGO_API_TOKEN: ${{ secrets.WAGO_API_TOKEN }}
           GITHUB_OAUTH:   ${{ secrets.GITHUB_TOKEN }}
         with:
-          args: ""          # build + upload (with libs); CF/Wago auto-detected from .toc IDs
+          args: ""          # build + upload (with libs); CF auto-detected from the .toc ID
