@@ -53,7 +53,23 @@ f:SetScript("OnEvent", function(self, event, arg1, ...)
         -- available (it's nil back on ADDON_LOADED). Keeps SavedVariables small.
         ns.Database:PruneIfReady()
         ns.Privacy:MaybeShowWelcome()
-        if not (C_PvP.IsBattleground and C_PvP.IsBattleground()) then
+        if C_PvP.IsBattleground and C_PvP.IsBattleground() then
+            -- Back inside a battleground on a PEW: either the opening load or
+            -- a /reload mid-match. The latter wiped the Collector's context
+            -- and PVP_MATCH_ACTIVE will not fire again, so rebuild it from the
+            -- record parked in SavedVariables. All the guarding lives in
+            -- RestoreContext (instance id + battle fingerprint + freshness);
+            -- a refusal is a silent no-op that leaves today's behaviour.
+            -- Doing it HERE and not at snapshot time is deliberate: we are
+            -- still in the instance, so GetInstanceInfo and
+            -- GetActiveMatchDuration both answer honestly.
+            if ns.Collector and ns.Collector:RestoreContext() then
+                -- The restored context knows it is an EBG again, so the
+                -- services that gate on that can run for the rest of the match.
+                if ns.Deserter then ns.Deserter:OnMatchActive() end
+                if ns.PremadeAlert then ns.PremadeAlert:OnMatchActive() end
+            end
+        else
             -- Left the BG (clean end, kick, or disconnect). Reset the start-
             -- roster cache so a stale capture from the prior match can't leak
             -- into the next one — BUT only if no match went active in the last

@@ -178,6 +178,126 @@ local function sweepAllyCrowns()
     end
 end
 
+-- =========================================================================
+-- Surviving a /reload  (see docs/plans/plan-2026-08-08-startedat-persistence.md)
+--
+-- ``ctx`` is a file local, so a /reload inside a battleground wipes it and
+-- PVP_MATCH_ACTIVE never fires a second time. Everything the match context
+-- knew is gone — most damagingly ``startedAt``, which the server needs to
+-- tell a legitimate back-to-back match from one reporter claiming to be in
+-- two matches at once. Prod 08.08: match 1786139321 was quarantined as
+-- temporal_overlap for exactly this reason, and 5 of the 18 snapshots in the
+-- owner's collectorLog ring show the tell-tale "adopted instance=… from
+-- COMPLETE handler" line.
+--
+-- So the fragile parts get parked in SavedVariables (which WoW flushes on
+-- ReloadUI — the same property the owner-only live overlay relies on) and
+-- read back on the PLAYER_ENTERING_WORLD that follows.
+-- =========================================================================
+
+-- Tolerance when matching the parked battle fingerprint against the live one.
+-- Both ends are ``time() - GetActiveMatchDuration()``; they can disagree by
+-- the second-rounding of that API plus the delay of whoever reads it later.
+-- ~7s is the realistic worst case, so 15 is comfortable. Deliberately NOT
+-- wider: two different Epics can start within a minute of each other when the
+-- queue pops in waves, and a loose fingerprint would adopt the wrong match's
+-- start time.
+local ACTIVE_MATCH_FINGERPRINT_TOL = 15
+
+-- When WE consider a parked record too old to mean anything. Mirrors the
+-- server's absolute duration ceiling (integrity._MAX_DURATION_SEC).
+local ACTIVE_MATCH_MAX_AGE_SEC = 21600
+
+-- Start of the BATTLE, or nil when the API won't say. This is NOT a stand-in
+-- for startedAt: on a late join the battle began minutes before we arrived,
+-- which is the very error the 0.9.33 fix removed. It is used only as a
+-- fingerprint — a value that is stable within one match and differs between
+-- matches.
+local function battleStartStamp()
+    local dur = C_PvP and C_PvP.GetActiveMatchDuration and C_PvP.GetActiveMatchDuration()
+    if type(dur) ~= "number" or dur < 0 then return nil end
+    return time() - math.floor(dur)
+end
+
+local function persistActiveMatch()
+    local db = ns.Database and ns.Database.db
+    if not db then return end
+    db.activeMatch = {
+        startedAt     = ctx.startedAt,
+        battleStart   = battleStartStamp(),
+        instanceMapID = ctx.instanceMapID,
+        savedAt       = time(),
+        -- Bracket fields too: without them a post-reload match uploads as
+        -- plain "BG" instead of "EPIC". Free to carry, we are writing anyway.
+        isRated       = ctx.isRated,
+        isBlitz       = ctx.isBlitz,
+        isEpic        = ctx.isEpic,
+        matchType     = ctx.matchType,
+    }
+end
+
+local function clearActiveMatch()
+    local db = ns.Database and ns.Database.db
+    if db then db.activeMatch = nil end
+end
+
+-- Rebuild ctx from the parked record after a /reload. Called from the
+-- PLAYER_ENTERING_WORLD handler while we are still INSIDE the battleground:
+-- GetInstanceInfo and GetActiveMatchDuration are both valid there, unlike at
+-- snapshot time when the post-match teleport may already have happened.
+--
+-- Every gate must pass. A refusal costs nothing — it just leaves the old
+-- behaviour, where the server falls back to the duration-derived window.
+function Collector:RestoreContext()
+    if ctx.startedAt then return false end        -- context is alive already
+    local db = ns.Database and ns.Database.db
+    local saved = db and db.activeMatch
+    if not (saved and saved.startedAt) then return false end
+
+    local now = time()
+    if now - (saved.savedAt or 0) > ACTIVE_MATCH_MAX_AGE_SEC then
+        dbg("restore skipped: parked record is stale")
+        clearActiveMatch()
+        return false
+    end
+    if saved.startedAt >= now then
+        dbg("restore skipped: parked startedAt is not in the past")
+        return false
+    end
+
+    local liveID = select(8, GetInstanceInfo())
+    if liveID == nil or liveID ~= saved.instanceMapID then
+        dbg(("restore skipped: instance %s != parked %s")
+            :format(tostring(liveID), tostring(saved.instanceMapID)))
+        return false
+    end
+
+    -- The fingerprint is what makes this safe. Without it we could inherit
+    -- the previous match's startedAt after leaving one battle and entering
+    -- another on the same map.
+    local liveStart = battleStartStamp()
+    if liveStart == nil or saved.battleStart == nil
+        or math.abs(liveStart - saved.battleStart) > ACTIVE_MATCH_FINGERPRINT_TOL then
+        dbg(("restore skipped: battle fingerprint %s vs parked %s")
+            :format(tostring(liveStart), tostring(saved.battleStart)))
+        return false
+    end
+
+    ctx.startedAt     = saved.startedAt
+    ctx.instanceMapID = saved.instanceMapID
+    ctx.isEBG         = ns.IsEBGInstanceID(saved.instanceMapID)
+    ctx.mapName       = ctx.mapName or GetRealZoneText()
+    ctx.isRated       = saved.isRated
+    ctx.isBlitz       = saved.isBlitz
+    ctx.isEpic        = saved.isEpic
+    ctx.matchType     = saved.matchType
+    ctx.premadeGUIDs  = ctx.premadeGUIDs or {}
+    ctx.snapshots     = ctx.snapshots or {}
+    dbg(("restored context: instance=%d startedAt=-%ds")
+        :format(saved.instanceMapID, now - saved.startedAt))
+    return true
+end
+
 function Collector:OnMatchActive()
     -- Stop any leftover ticker from a previous match that ended uncleanly
     -- (DC, /reload). Ticker holds a closure on stale ctx — leaking it would
@@ -214,6 +334,10 @@ function Collector:OnMatchActive()
         -- Mid-match snapshots {takenAt, players: [{guid, dmg, heal, kb, deaths, objective, faction}]}
         snapshots  = {},
     }
+    -- Park the parts of ctx that a /reload would otherwise destroy. See
+    -- RestoreContext below for why this exists and what guards the read back.
+    if ctx.isEBG then persistActiveMatch() end
+
     -- Everyone in our party/raid at match start = presumed premade
     local n = GetNumGroupMembers() or 0
     if n > 0 then
@@ -442,6 +566,21 @@ function Collector:TryCaptureBaseline()
     if ctx.baseline or not ctx.isEBG then return ctx.baseline ~= nil end
     -- Kicked / left / grace-window: the reset can arrive late, so re-check.
     if not (C_PvP and C_PvP.IsBattleground and C_PvP.IsBattleground()) then
+        return false
+    end
+    -- Never once the match is over. AdoptInstanceID flips ctx.isEBG on
+    -- PVP_MATCH_COMPLETE, and ScheduleSnapshotMatch's refresh() then fires
+    -- UPDATE_BATTLEFIELD_SCORE synchronously — so without this gate a context
+    -- that missed the match (crashed client, addon enabled mid-match, and
+    -- until now a /reload) captures the FINAL scoreboard and files it as "who
+    -- was here at the start". Measured on the owner's SavedVariables before
+    -- the fix: 15 of 50 baselines had ageSec > 600, up to 3156s.
+    -- The damage is on the server: a baseline containing everyone who
+    -- survived silently disables the late-join veto that protects the
+    -- deserter heuristic (routers/samples.py) and the late-join badge
+    -- (routers/dashboard.py), and it is shared with every other reporter of
+    -- that match.
+    if C_PvP.IsMatchComplete and C_PvP.IsMatchComplete() then
         return false
     end
     -- SetBattlefieldScoreFaction fires UPDATE_BATTLEFIELD_SCORE synchronously,
@@ -815,6 +954,18 @@ function Collector:SnapshotMatch(statsSecret)
     })
 
     if ns.Deserter then ns.Deserter:Reset() end
+
+    -- Drop the parked record only when this really was the end of the match.
+    -- `/piq snapshot` (Main.lua) runs the exact same path mid-battle, and
+    -- clearing here unconditionally would throw away the one thing that lets
+    -- the REAL snapshot recover its startedAt after a /reload.
+    if not (C_PvP.IsMatchComplete and C_PvP.IsMatchComplete()) then
+        -- Manual mid-match snapshot: ctx is about to be wiped below, so
+        -- re-park what a later restore will need.
+        persistActiveMatch()
+    else
+        clearActiveMatch()
+    end
 
     -- Clear context for next match
     ctx = {}

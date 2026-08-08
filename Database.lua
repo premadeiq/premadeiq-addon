@@ -19,7 +19,14 @@ local ADDON, ns = ...
 --     snapshots = { { takenAt, players = [{guid, dmg, heal, kb, deaths, objective, faction}, ...] }, ... },
 --   }, ... },
 --   privacy = { firstSeenAt, welcomeSeen },
---   settings = { debug=false, uploaderHintShown=false }
+--   settings = { debug=false, uploaderHintShown=false },
+--   -- Live match context parked so it survives a /reload (Collector.lua).
+--   -- Written on PVP_MATCH_ACTIVE for EBGs, read back on the next
+--   -- PLAYER_ENTERING_WORLD, dropped when the match really ends. Absent
+--   -- outside a match. NOT part of schemaVersion: it is optional state, and
+--   -- Init creates missing keys lazily, so no migration is involved.
+--   activeMatch = { startedAt, battleStart, instanceMapID, savedAt,
+--                   isRated, isBlitz, isEpic, matchType },
 -- }
 
 local SCHEMA_VERSION   = 3

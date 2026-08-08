@@ -2,6 +2,25 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.35] — 2026-08-08
+
+### Fixed
+- **A `/reload` mid-match no longer costs you the match.** The addon only
+  recorded when you joined a battle at the moment it started, and reloading the
+  interface wiped that with no way to get it back. The server then concluded you
+  had been in two matches at once and quarantined the match — it simply vanished
+  from the site. Your join time now survives a `/reload`: it is stored together
+  with a fingerprint of the battle itself and restored only when that
+  fingerprint matches, so two back-to-back matches on the same map cannot be
+  confused for one another.
+- **The "who was here from the start" roster is no longer replaced by the final
+  scoreboard.** After an interface reload the addon could capture the starting
+  roster from the end-of-match board. Such a list contains everyone who made it
+  to the end, so players who joined as replacements stopped counting as late
+  arrivals — which is exactly what protects them from being marked as having
+  left the match. The starting roster is now never captured after the match is
+  over.
+
 ## [0.9.34] — 2026-08-08
 
 ### Added
