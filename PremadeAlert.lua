@@ -423,6 +423,19 @@ local function leaderLineFor(ld)
     return fmt:format(ld.name, ld.count)
 end
 
+-- "Usually takes raid lead" — one neutral line about people the owner marked
+-- as raid leads who run no premade. Deliberately never a sound: a solo lead is
+-- context, not an alarm, and the same metric catches the owner too.
+--
+-- Declared HERE, above buildBannerBody and announceLines, on purpose: a `local
+-- function` is invisible to anything defined earlier in the file, so a use
+-- above its declaration silently reads a nil global instead.
+local function raidLeadLine(res)
+    local names = res and res.raidLeads
+    if not names or #names == 0 then return nil end
+    return L["RaidLeadDetected"]:format(table.concat(names, ", "))
+end
+
 -- Broadcast-ready one-liner for the copy dialog — what the user pastes into
 -- /rw or raid chat themselves. "Headline — Leader X: 8 — Leader Y: 2".
 local function buildCopyText(res)
@@ -605,6 +618,13 @@ local function buildBannerBody(res)
     if extra > 0 then
         lines[#lines + 1] = "|cff888888" .. L["PremadeMore"]:format(extra) .. "|r"
     end
+    -- Solo raid leads present alongside a premade. The centre-screen frame is
+    -- single-line and belongs to the premade verdict, so their line lands here,
+    -- where the chat line has a visible counterpart.
+    local rl = raidLeadLine(res)
+    if rl then
+        lines[#lines + 1] = "|cffffcc00" .. rl .. "|r"
+    end
     -- Live crown count (fed by Collector during the match): how many enemy
     -- group leaders are visible at once. Appears once ≥2 have been seen —
     -- one crown is just their raid lead.
@@ -613,6 +633,11 @@ local function buildBannerBody(res)
     end
     return table.concat(lines, "\n")
 end
+
+-- Test seam, alongside BuildAnnounceLines: chat and banner must agree about
+-- solo leads, and this is the call that dies if raidLeadLine drifts back below
+-- its use (addon/tests/test_premade_alert_lines.lua).
+PremadeAlert.BuildBannerBody = buildBannerBody
 
 function PremadeAlert:ShowBanner(res)
     local f = ensureBanner()
@@ -625,6 +650,21 @@ function PremadeAlert:ShowBanner(res)
     f.body:SetText(buildBannerBody(res))
     -- Size to content: top pad + headline + gap + body + bottom pad.
     f:SetHeight(10 + f.head:GetStringHeight() + 6 + f.body:GetStringHeight() + 12)
+    f.fade:Stop()
+    f:SetAlpha(1)
+    f:Show()
+    f.fade:Restart()
+end
+
+-- Headline-only banner (amber): used where there is no per-leader detail to
+-- show — a solo-raid-lead notice, or a crown count with no catalog hit.
+function PremadeAlert:ShowPlainBanner(text)
+    if not text then return end
+    local f = ensureBanner()
+    f.head:SetText(text)
+    f.head:SetTextColor(1, 0.80, 0.00)
+    f.body:SetText("")
+    f:SetHeight(10 + f.head:GetStringHeight() + 12)
     f.fade:Stop()
     f:SetAlpha(1)
     f:Show()
@@ -659,57 +699,68 @@ function PremadeAlert:OnEnemyCrowns(n)
     else
         -- No catalog hit this match — the crown count IS the alert
         -- (an unknown/uncatalogued premade still gets surfaced).
-        local f = ensureBanner()
-        f.head:SetText(line)
-        f.head:SetTextColor(1, 0.80, 0.00)
-        f.body:SetText("")
-        f:SetHeight(10 + f.head:GetStringHeight() + 12)
-        f.fade:Stop()
-        f:SetAlpha(1)
-        f:Show()
-        f.fade:Restart()
+        self:ShowPlainBanner(line)
     end
 end
 
--- "Usually takes raid lead" — one neutral line about people the owner
--- marked as raid leads who run no premade. Printed with the premade alert
--- when both are present, on its own when only they are. Deliberately not
--- a raid-warning and not a sound: it is information, not an alarm.
-local function raidLeadLine(res)
-    local names = res and res.raidLeads
-    if not names or #names == 0 then return nil end
-    return L["RaidLeadDetected"]:format(table.concat(names, ", "))
+-- Every chat line for a result, in print order. Pure — no frames, no globals —
+-- so "what gets said" is one decision with a test on it, instead of being
+-- spread across the branches of Announce. That split is what silently dropped
+-- the solo-lead line whenever a premade shared the match.
+local function announceLines(res)
+    local out = {}
+    if res and #res.leaders > 0 then
+        out[#out + 1] = { hex = res.confirmed and "ff2020" or "ffcc00",
+                          text = headlineFor(res) }
+        -- One line per leader: who they are + how many of their players are
+        -- here (or the leaderless wording when the leader isn't on the board).
+        for _, ld in ipairs(res.leaders) do
+            out[#out + 1] = { hex = "ffd100", text = leaderLineFor(ld) }
+        end
+    end
+    local rl = raidLeadLine(res)
+    if rl then out[#out + 1] = { hex = "ffcc00", text = rl } end
+    return out
+end
+-- Test seam: the announce decision is verified against this, not against the
+-- frames (addon/tests/test_premade_alert_lines.lua).
+PremadeAlert.BuildAnnounceLines = announceLines
+
+-- Centre-screen one-liner (the /rw-style frame). Amber unless told otherwise.
+local function raidNotice(text, colour)
+    if not text then return end
+    if RaidNotice_AddMessage and RaidWarningFrame then
+        pcall(RaidNotice_AddMessage, RaidWarningFrame, text,
+              colour or { r = 1, g = 0.8, b = 0 })
+    end
 end
 
 function PremadeAlert:Announce(res)
-    -- Only solo raid leads present: say that and nothing else. Running the
-    -- premade headline here would announce a premade that isn't there.
-    if #res.leaders == 0 then
-        local line = raidLeadLine(res)
-        if line then
-            prnt("|cffffcc00" .. line .. "|r")
-            self._last = { res = res, at = time() }
-        end
-        return
-    end
-    local header = headlineFor(res)
-    -- Confirmed = red, possible = amber.
-    local hex = res.confirmed and "ff2020" or "ffcc00"
-    prnt("|cff" .. hex .. header .. "|r")
-    -- One line per leader: who they are + how many of their players are here
-    -- (or the leaderless wording when the leader isn't on the board).
-    for _, ld in ipairs(res.leaders) do
-        prnt("|cffffd100" .. leaderLineFor(ld) .. "|r")
+    local lines = announceLines(res)
+    if #lines == 0 then return end
+    for _, l in ipairs(lines) do
+        prnt("|cff" .. l.hex .. l.text .. "|r")
     end
 
+    -- Only solo raid leads present: they get the centre-screen line and the
+    -- banner, but never the sound or the copy button. Running the premade
+    -- headline here would announce a premade that isn't there.
+    if #res.leaders == 0 then
+        local line = raidLeadLine(res)
+        raidNotice(line)
+        self:ShowPlainBanner(line)
+        self._last = { res = res, at = time() }
+        return
+    end
+
+    local header = headlineFor(res)
     -- Big centre-screen headline (the /rw-style frame) so it's impossible to
     -- miss in a noisy Epic chat. This frame is single-line, so it carries the
     -- headline only; the per-leader detail goes into our own banner just below.
-    if RaidNotice_AddMessage and RaidWarningFrame then
-        local colour = res.confirmed and { r = 1, g = 0.13, b = 0.13 }
-                                      or { r = 1, g = 0.8, b = 0 }
-        pcall(RaidNotice_AddMessage, RaidWarningFrame, header, colour)
-    end
+    -- A solo lead sharing the match rides in that banner, not here: the verdict
+    -- gets the frame.
+    raidNotice(header, res.confirmed and { r = 1, g = 0.13, b = 0.13 }
+                                      or { r = 1, g = 0.8, b = 0 })
 
     -- Multi-line banner with the full per-leader detail (top leaders + overflow)
     -- — what the single-line raid-warning above can't show.

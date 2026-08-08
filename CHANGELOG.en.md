@@ -2,6 +2,20 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.36] — 2026-08-08
+
+### Fixed
+- **A player tagged as "usually takes raid lead" no longer disappears from the
+  warning when a premade is in the match too.** Their line was printed only when
+  there were no premades at all — that is, exactly in the matches where it
+  matters least. It now comes last in the regular warning and is repeated in the
+  banner, and the premade verdict itself is unchanged.
+
+### Changed
+- **The standalone notice about such a player is easier to catch:** with no
+  premade in the match it now shows on the centre of the screen and in the
+  banner, not only in chat. Still no sound — it is context, not an alarm.
+
 ## [0.9.35] — 2026-08-08
 
 ### Fixed
