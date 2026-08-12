@@ -163,8 +163,14 @@ function Database:IncrementMatch(info)
         -- allyCrowns = [{guid, name}] every group leader on OUR side (raid
         -- lead + home-party leads, fully readable). nil when not captured
         -- (/reload mid-match, pre-0.9.25 client).
-        enemyCrownMax = info.enemyCrownMax,
-        allyCrowns    = info.allyCrowns,
+        -- enemyCrownSecret (addon ≥ 0.9.37) = peak enemies whose leadership
+        -- read back as a SECRET value. 12.1 made UnitLeadsAnyGroup secret
+        -- for units with secret identity, i.e. every enemy in a BG. > 0 ⇒
+        -- enemyCrownMax is a floor under an unknown, so "0 crowns" must NOT
+        -- be served as "this team had no group leaders".
+        enemyCrownMax    = info.enemyCrownMax,
+        enemyCrownSecret = info.enemyCrownSecret,
+        allyCrowns       = info.allyCrowns,
         -- Scoreboard rows still unreadable (secret) at capture time, addon
         -- ≥ 0.9.32. The server skips its desertion heuristic when this is > 0.
         statsSecret   = info.statsSecret,

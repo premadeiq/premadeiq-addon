@@ -2,6 +2,24 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.37] — 2026-08-12
+
+### Changed
+- **Support for patch 12.1 "Curse of Ula'tek".** The addon is no longer flagged
+  as out of date.
+
+### Fixed
+- **Enemy "crowns" no longer report zero where the truth is "cannot see".** In
+  12.1 the game stopped telling addons which enemies lead a group, so the old
+  counter honestly returned zero simply because it is no longer allowed to look.
+  On the site that would have read as "the enemy team brought no pre-formed
+  groups" — a claim the addon never made. It now counts separately the enemies
+  the game refused to answer for, and in that case the server publishes no
+  estimate at all instead of publishing a zero. Crowns actually seen (if the
+  game does answer) still count as a lower bound, and your own side is
+  unaffected: the game places no such limits there, so enemy group leaders keep
+  being recovered from reports by players of the opposite faction.
+
 ## [0.9.36] — 2026-08-08
 
 ### Fixed

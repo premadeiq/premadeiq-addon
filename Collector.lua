@@ -92,12 +92,22 @@ local BASELINE_CONFIRM_TICKS = 2     -- consecutive observations that agree
 -- how many pre-formed groups the other team brought. One crown is just
 -- their raid lead; two or more means grouped players.
 --
--- What 12.x secrecy leaves us (verified live, 2026-07): leadership IS
+-- What 12.0.x secrecy left us (verified live, 2026-07): leadership IS
 -- readable on enemy nameplate units with no interaction, but enemy
 -- identity (name/guid) is secret both mid-match AND post-match — so the
 -- enemy side contributes a COUNT only. Our own raid is fully readable, so
 -- ally crowns ship as guid+name; one report from the other faction of the
 -- same match names OUR enemies on the server side.
+--
+-- 12.1 ("Curse of Ula'tek", 2026-08-12) very likely closes the enemy half:
+-- UnitLeadsAnyGroup joined the APIs that return a SECRET whenever the unit's
+-- identity is secret, which inside a BG is every enemy. NOT yet confirmed
+-- live — hence pollEnemyCrowns now counts unreadable enemies separately and
+-- ships that as enemyCrownSecret instead of guessing. A match reported with
+-- enemyCrownSecret > 0 and enemyCrownMax == 0 is the API being shut, not a
+-- pug enemy team, and the server must not read it as the latter. The ally
+-- half is unaffected (our own identities are never secret), so cross-faction
+-- reports remain the durable path to naming enemy leaders.
 --
 -- C_NamePlate.GetNamePlates() returns nothing useful inside PvP instances,
 -- so we keep our own registry fed by NAME_PLATE_UNIT_ADDED/REMOVED (which
@@ -134,22 +144,32 @@ local function isFriendlyUnit(unit)
         or notSecretTrue(UnitInParty(unit))
 end
 
--- One poll: how many enemy players with a visible nameplate lead a group.
+-- One poll: how many enemy players with a visible nameplate lead a group,
+-- plus how many we could NOT read because the answer came back secret.
 -- UnitIsPlayer left unguarded on purpose: secret (= can't tell) passes,
 -- a plain false (NPC) is excluded — a crowned NPC can't happen anyway.
+--
+-- The second return exists because 12.1 (see the section header) can make
+-- UnitLeadsAnyGroup secret for every enemy. Without it a closed API and a
+-- genuinely uncrowned enemy team both arrive at the server as "0", and 0 is
+-- the answer that says "no premade" — exactly the claim we must not invent.
 local function pollEnemyCrowns()
-    local crowns = 0
+    local crowns, secret = 0, 0
     for u in pairs(plateUnits) do
         if UnitExists(u) then
-            if not isFriendlyUnit(u) and UnitIsPlayer(u)
-                and notSecretTrue(UnitLeadsAnyGroup(u)) then
-                crowns = crowns + 1
+            if not isFriendlyUnit(u) and UnitIsPlayer(u) then
+                local leads = UnitLeadsAnyGroup(u)
+                if issecretvalue and issecretvalue(leads) then
+                    secret = secret + 1
+                elseif leads then
+                    crowns = crowns + 1
+                end
             end
         else
             plateUnits[u] = nil        -- stale token (missed REMOVED)
         end
     end
-    return crowns
+    return crowns, secret
 end
 
 -- Our own raid is fully readable: collect every group leader (raid lead
@@ -367,18 +387,24 @@ function Collector:OnMatchActive()
     -- through the upvalue at tick time: after the end-of-match reset the
     -- surviving ticks see the fresh empty context and no-op.
     wipe(plateUnits)
-    ctx.enemyCrownMax = 0
-    ctx.allyCrowns    = {}
+    ctx.enemyCrownMax    = 0
+    ctx.enemyCrownSecret = 0
+    ctx.allyCrowns       = {}
     local crownTick = 0
     ctx.crownTicker = C_Timer.NewTicker(CROWN_TICK_SEC, function()
         if not ctx.isEBG then return end
         crownTick = crownTick + 1
-        local crowns = pollEnemyCrowns()
+        local crowns, secret = pollEnemyCrowns()
         if crowns > (ctx.enemyCrownMax or 0) then
             ctx.enemyCrownMax = crowns
             if ns.PremadeAlert and ns.PremadeAlert.OnEnemyCrowns then
                 ns.PremadeAlert:OnEnemyCrowns(crowns)
             end
+        end
+        -- Peak unreadable-enemy count, kept even when crowns stays 0 — this
+        -- is what tells the server "no answer" apart from "answer was none".
+        if secret > (ctx.enemyCrownSecret or 0) then
+            ctx.enemyCrownSecret = secret
         end
         -- First ally sweep ~2s in (roster may still settle — later sweeps
         -- merge by GUID), then roughly once a minute.
@@ -940,8 +966,12 @@ function Collector:SnapshotMatch(statsSecret)
         snapshots   = snapshots,
         -- Crown signals (addon ≥ 0.9.25): count-only for enemies (identity
         -- is secret), guid+name for our own side. nil/0 when not captured.
-        enemyCrownMax = ctx.enemyCrownMax,
-        allyCrowns    = allyCrowns,
+        -- enemyCrownSecret (addon ≥ 0.9.37): peak enemies whose leadership
+        -- read back SECRET. > 0 ⇒ enemyCrownMax is a floor of an unknown,
+        -- not a measurement — see the crown section header for 12.1.
+        enemyCrownMax    = ctx.enemyCrownMax,
+        enemyCrownSecret = ctx.enemyCrownSecret,
+        allyCrowns       = allyCrowns,
         -- Capture quality (addon ≥ 0.9.32): rows whose combat numbers were
         -- still SECRET when we captured. > 0 ⇒ the server does not judge
         -- anyone by this scoreboard. nil for a manual /piq snapshot.
