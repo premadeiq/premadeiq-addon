@@ -2,6 +2,20 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.38] — 2026-08-12
+
+### Fixed
+- **The addon no longer breaks the game's own combat announcements.** The
+  premade headline was posted to the same centre-screen frame the game uses for
+  its own warnings ("The gate has been destroyed" and the like). In 12.1 that
+  became unsafe: after our message the frame stayed flagged as addon-touched and
+  then errored — not only on our text, but on the game's own announcements too.
+  The failure could not be caught, because it happened after the addon had
+  already finished. That frame is no longer used at all. Nothing is lost: the
+  PremadeIQ banner shows the same headline in the same colours (red = premade
+  confirmed, amber = possible) and additionally lists the leaders, which the
+  single-line frame could never do.
+
 ## [0.9.37] — 2026-08-12
 
 ### Changed

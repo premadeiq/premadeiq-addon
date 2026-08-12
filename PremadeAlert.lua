@@ -726,14 +726,22 @@ end
 -- frames (addon/tests/test_premade_alert_lines.lua).
 PremadeAlert.BuildAnnounceLines = announceLines
 
--- Centre-screen one-liner (the /rw-style frame). Amber unless told otherwise.
-local function raidNotice(text, colour)
-    if not text then return end
-    if RaidNotice_AddMessage and RaidWarningFrame then
-        pcall(RaidNotice_AddMessage, RaidWarningFrame, text,
-              colour or { r = 1, g = 0.8, b = 0 })
-    end
-end
+-- The Blizzard RaidWarningFrame is deliberately NOT used any more (0.9.38).
+--
+-- Patch 12.1 made it unsafe for addons to touch: posting a message leaves our
+-- taint on the frame, and the frame then processes its queue later, on its own
+-- OnEvent stack, where the arithmetic in EnforceLineLimits meets a secret value
+-- and errors:
+--   RaidWarning.lua:231: attempt to perform arithmetic on a secret number value
+--   (execution tainted by 'PremadeIQ')
+-- Our pcall around the call could never catch that -- the failure happens after
+-- we return. Worse, the damage is not ours alone: once tainted, the frame also
+-- breaks for the game's OWN raid warnings during a battleground (the reported
+-- stack came from a game event, not from us).
+--
+-- Nothing is lost by dropping it. ShowBanner/ShowPlainBanner already render the
+-- same headline centre-screen, in the same colours (red = confirmed, amber =
+-- possible), and carry the per-leader detail the single-line frame never could.
 
 function PremadeAlert:Announce(res)
     local lines = announceLines(res)
@@ -747,23 +755,14 @@ function PremadeAlert:Announce(res)
     -- headline here would announce a premade that isn't there.
     if #res.leaders == 0 then
         local line = raidLeadLine(res)
-        raidNotice(line)
         self:ShowPlainBanner(line)
         self._last = { res = res, at = time() }
         return
     end
 
-    local header = headlineFor(res)
-    -- Big centre-screen headline (the /rw-style frame) so it's impossible to
-    -- miss in a noisy Epic chat. This frame is single-line, so it carries the
-    -- headline only; the per-leader detail goes into our own banner just below.
-    -- A solo lead sharing the match rides in that banner, not here: the verdict
-    -- gets the frame.
-    raidNotice(header, res.confirmed and { r = 1, g = 0.13, b = 0.13 }
-                                      or { r = 1, g = 0.8, b = 0 })
-
-    -- Multi-line banner with the full per-leader detail (top leaders + overflow)
-    -- — what the single-line raid-warning above can't show.
+    -- Centre-screen banner: headline (red = confirmed, amber = possible) plus
+    -- the full per-leader detail. This is now the ONLY centre-screen output --
+    -- see the note above on why the Blizzard raid-warning frame was dropped.
     self:ShowBanner(res)
 
     if not ns.Database or ns.Database:GetSetting("premadeSound") ~= false then
