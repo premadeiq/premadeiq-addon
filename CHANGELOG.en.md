@@ -2,6 +2,23 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.39] — 2026-08-14
+
+### Fixed
+- **Players whose identifier could not be read are no longer mistaken for
+  leavers.** A final-scoreboard row with an unreadable identifier was skipped
+  silently, and on the server it looked exactly like the row of somebody who had
+  left the battleground. The addon now marks the player by NAME (a name is
+  something the game never hides) before the row can be dropped, and separately
+  reports how many rows it had to drop.
+
+### Added
+- **The site now shows who did not make it to the end of a match.** The data was
+  already there, but only the opposite half of it was used — the "joined late"
+  badge. The match page's "Left the battlefield" section is no longer empty: an
+  Epic battleground turns over half its roster, and both sides of that trade are
+  visible now.
+
 ## [0.9.38] — 2026-08-12
 
 ### Fixed

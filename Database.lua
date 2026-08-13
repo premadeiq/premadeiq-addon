@@ -174,9 +174,15 @@ function Database:IncrementMatch(info)
         -- Scoreboard rows still unreadable (secret) at capture time, addon
         -- ≥ 0.9.32. The server skips its desertion heuristic when this is > 0.
         statsSecret   = info.statsSecret,
+        -- Final-scoreboard rows DROPPED because the guid was unreadable (addon
+        -- ≥ 0.9.39). > 0 ⇒ the server must not diff this capture against the
+        -- baseline to decide who left the battleground.
+        rowsSkipped   = info.rowsSkipped,
         -- Baseline roster by NAME (addon ≥ 0.9.33): who was on the board once
         -- it had demonstrably finished loading. nil when no trustworthy
         -- baseline could be taken. { ageSec, rowsH, rowsA, players }
+        -- Each row: { n = name, f = faction, g = guid stapled on at match end,
+        -- s = true when the name was matched on the final board (≥ 0.9.39) }.
         baseline      = info.baseline,
     })
     while #self.db.matchLog > MAX_MATCH_LOG do

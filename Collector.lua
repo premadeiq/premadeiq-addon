@@ -515,6 +515,17 @@ local function safeNum(v)
     return v
 end
 
+-- Same guard for the one STRING we key data on. A secret value is truthy, so
+-- ``if info.guid then`` lets it straight through — the guid then becomes a
+-- table key and a payload field, and only the SavedVariables serializer drops
+-- it, silently and far from here. Callers need to know they got nothing, so
+-- return nil instead.
+local function safeGuid(v)
+    if type(v) ~= "string" or v == "" then return nil end
+    if issecretvalue and issecretvalue(v) then return nil end
+    return v
+end
+
 -- Mid-match snapshot: lightweight scoreboard capture taken every
 -- MID_SNAPSHOT_INTERVAL seconds while the match is active. Stores only
 -- the volatile numeric fields (dmg/heal/kb/deaths/objective) keyed by
@@ -809,10 +820,25 @@ function Collector:SnapshotMatch(statsSecret)
     -- Team size counters
     local teamSize = { [0] = 0, [1] = 0 }
 
-    local added = 0
+    local added      = 0
+    local rowsSkipped = 0
     for i = 1, numScores do
         local info = C_PvP.GetScoreInfo(i)
-        if info and info.guid then
+        -- Mark the baseline row SEEN before anything can make us skip this row.
+        -- Names are NeverSecret, guids are not, so a row we drop below for an
+        -- unreadable guid would otherwise leave its baseline entry looking
+        -- exactly like a player who left the battleground (leavers.py turns
+        -- that into a desertion). The name is the only honest answer we have.
+        local seenName = scoreName(info and info.name)
+        if seenName and ctx.baselineByName then
+            local brow = ctx.baselineByName[seenName]
+            if brow then brow.s = true end
+        end
+        local rowGuid = info and safeGuid(info.guid)
+        if info and not rowGuid then
+            rowsSkipped = rowsSkipped + 1
+        end
+        if info and rowGuid then
             if info.faction == 0 or info.faction == 1 then
                 teamSize[info.faction] = teamSize[info.faction] + 1
             end
@@ -866,7 +892,7 @@ function Collector:SnapshotMatch(statsSecret)
                 rawStats   = rawStats,            -- full breakdown for future analysis
                 faction    = info.faction,
                 race       = info.raceName,       -- localized; server has en_US + ru_RU lookup
-                premade    = ctx.premadeGUIDs and ctx.premadeGUIDs[info.guid] or false,
+                premade    = ctx.premadeGUIDs and ctx.premadeGUIDs[rowGuid] or false,
                 won        = won,
             }
 
@@ -895,13 +921,15 @@ function Collector:SnapshotMatch(statsSecret)
             -- Guids are readable again at match end, and resolving them HERE
             -- keeps it match-local: no historical name→guid lookup that could
             -- collide across renames, connected realms or reused names.
-            -- Players who left before the end simply keep a nil guid.
+            -- Players who left before the end simply keep a nil guid — but so
+            -- do players whose guid read back secret, which is why ``s`` above
+            -- is set for every row we could name, readable guid or not.
             if ctx.baselineByName and fullName ~= "" then
                 local row = ctx.baselineByName[fullName]
-                if row then row.g = info.guid end
+                if row then row.g = rowGuid end
             end
 
-            ns.Database:AddSample(info.guid, meta, sample)
+            ns.Database:AddSample(rowGuid, meta, sample)
             added = added + 1
         end
     end
@@ -976,6 +1004,12 @@ function Collector:SnapshotMatch(statsSecret)
         -- still SECRET when we captured. > 0 ⇒ the server does not judge
         -- anyone by this scoreboard. nil for a manual /piq snapshot.
         statsSecret   = statsSecret,
+        -- Rows we had to DROP because the guid was unreadable (addon ≥ 0.9.39).
+        -- Distinct from statsSecret, which counts unreadable NUMBERS on rows we
+        -- kept. > 0 ⇒ this capture cannot be diffed against the baseline to say
+        -- who left: a dropped row and a departed player look identical from the
+        -- server's side.
+        rowsSkipped   = rowsSkipped,
         -- Who was on the board before substitutions started (addon ≥ 0.9.33),
         -- names only — the one thing that stays readable mid-match. nil when
         -- the scoreboard never demonstrably finished loading (short match,
