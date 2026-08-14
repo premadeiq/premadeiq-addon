@@ -1,6 +1,8 @@
 local ADDON, ns = ...
 
-local locale = GetLocale()
+-- Locale is resolved at the bottom of this file, not here: the saved language
+-- preference lives in SavedVariables, which are not populated until every Lua
+-- file has finished executing.
 local L = setmetatable({}, { __index = function(t, k) return k end })
 ns.L = L
 
@@ -39,9 +41,16 @@ local en = {
     ["PremadeCopyNone"]        = "No recent premade alert to copy.",
     ["PremadeCopyBtn"]         = "Copy premade alert",
     ["PremadeCopyBtnTip"]      = "Left-click: copy the enemy-premade line (box opens, Ctrl+C, paste into /rw or Discord). Right-click: hide. Drag to move.",
-    ["PremadeTargetsHeader"]    = "Known premade targets",
+    ["PremadeTargetsHeader"]    = "Tracked players",
     ["PremadeTargetLeader"]    = "Known premade leader",
     ["PremadeTargetMember"]    = "Known premade member",
+    -- Marked "takes raid lead, runs no premade". A plain fact, never an
+    -- accusation — and never mutually exclusive with premade membership.
+    ["PremadeTargetRaidLead"]  = "Takes raid lead, no premade",
+    ["PremadeTargetRaidLeadAlso"] = "Also takes raid lead",
+    -- Personal watchlist: the owner asked to see this player. Says nothing
+    -- about premades, and must not be worded as if it did.
+    ["PremadeTargetWatched"]   = "On your watchlist",
     ["PremadeTargetGroups"]    = "Premades",
     ["PremadeTargetClick"]     = "Left-click: target this player. Right-click: set focus (keeps your current target)",
     ["PremadeTargetsEnemySection"] = "Enemy team",
@@ -54,10 +63,23 @@ local en = {
     ["PremadeTargetsTrayHint"]     = "Left-click: restore the panel. Drag to move.",
 
     -- Options: targets panel sizing
-    ["OptTargetsHeader"]        = "Premade targets panel",
+    ["OptTargetsHeader"]        = "In-match players panel",
+    ["OptLanguage"]             = "Language",
+    ["OptLanguageTooltip"]      = "Language of the addon interface. \"Auto\" follows your game client. Battleground alerts stay English on every setting, because they are read by a mixed-language battleground.",
+    ["OptMinimapButton"]        = "Show the minimap button",
+    ["OptMinimapButtonTooltip"] = "A button on the minimap that opens these settings. Drag it around the minimap to move it.",
+    ["MinimapTooltipClick"]     = "Click: open settings",
+    ["MinimapTooltipDrag"]      = "Drag: move around the minimap",
+    ["OptWatchHeader"]         = "Your watchlist",
+    ["OptWatchHint"]           = "Players you want to notice in a battleground. Paste a name (copy it in game) and press Add. Kept on this computer only — never uploaded, never shown to anyone else. Names are matched exactly, so a rename breaks the entry.",
+    ["OptWatchAdd"]            = "Add",
+    ["OptWatchCount"]          = "In your list",
+    ["OptWatchDuplicate"]      = "Already in your list.",
+    ["OptWatchFull"]           = "The list is full.",
+    ["OptWatchBadName"]        = "Could not read that name. Expected Name or Name-Realm.",
     ["OptTargetsScale"]         = "Panel size",
     ["OptTargetsColumns"]       = "Columns",
-    ["OptTargetsScaleTooltip"]  = "Scale of the in-match panel listing known premade members of both teams.",
+    ["OptTargetsScaleTooltip"]  = "Scale of the in-match panel listing tracked players of both teams.",
     ["OptTargetsColumnsTooltip"] = "How many name columns each team section is laid out in.",
 
     -- Commands help
@@ -79,7 +101,7 @@ local en = {
         .. "  2. Join our Discord\n"
         .. "  3. Link Discord to your Patreon (King of EBG tier)\n\n"
         .. "Use /piq uploader to get the download link.",
-    ["UploaderURL"]    = "Uploader download: https://github.com/premadeiq/premadeiq-uploader/releases/latest",
+    ["UploaderURL"]    = "Uploader download:\nhttps://github.com/premadeiq/premadeiq-uploader/releases/latest",
     ["DiscordURL"]     = "Discord: https://discord.gg/KGPKRWt4MG",
 
     ["Got it"]         = "Got it",
@@ -133,9 +155,9 @@ local ruRU = {
     ["PremadeCopyNone"]        = "No recent premade alert to copy.",
     ["PremadeCopyBtn"]         = "Copy premade alert",
     ["PremadeCopyBtnTip"]      = "Left-click: copy the enemy-premade line (box opens, Ctrl+C, paste into /rw or Discord). Right-click: hide. Drag to move.",
-    ["PremadeTargetsHeader"]    = "Известные участники премейдов",
     ["PremadeTargetLeader"]    = "Известный лидер премейда",
     ["PremadeTargetMember"]    = "Известный участник премейда",
+    ["PremadeTargetWatched"]   = "В твоём личном списке",
     ["PremadeTargetGroups"]    = "Премейды",
     ["PremadeTargetClick"]     = "ЛКМ: выбрать в цель. ПКМ: назначить фокусом (текущая цель сохранится)",
     ["PremadeTargetsEnemySection"] = "Команда противника",
@@ -148,6 +170,19 @@ local ruRU = {
     ["PremadeTargetsTrayHint"]     = "ЛКМ — развернуть панель. Перетащить для перемещения.",
 
     ["OptTargetsHeader"]        = "Панель участников премейдов",
+    ["OptLanguage"]             = "Язык",
+    ["OptLanguageTooltip"]      = "Язык интерфейса аддона. «Auto» — как в игровом клиенте. Предупреждения в бою остаются английскими при любом выборе: их читает поле боя, говорящее на разных языках.",
+    ["OptMinimapButton"]        = "Показывать кнопку на миникарте",
+    ["OptMinimapButtonTooltip"] = "Кнопка на миникарте, открывающая эти настройки. Её можно перетаскивать по краю миникарты.",
+    ["MinimapTooltipClick"]     = "Клик: открыть настройки",
+    ["MinimapTooltipDrag"]      = "Перетаскивание: двигать по миникарте",
+    ["OptWatchHeader"]         = "Твой список",
+    ["OptWatchHint"]           = "Игроки, которых ты хочешь замечать в бою. Вставь имя (скопируй его в игре) и нажми «Добавить». Хранится только на этом компьютере — никуда не отправляется и никому не видно. Имя сверяется точно, поэтому переименование рвёт запись.",
+    ["OptWatchAdd"]            = "Добавить",
+    ["OptWatchCount"]          = "В списке",
+    ["OptWatchDuplicate"]      = "Уже в списке.",
+    ["OptWatchFull"]           = "Список заполнен.",
+    ["OptWatchBadName"]        = "Не удалось разобрать имя. Ожидается Имя или Имя-Реалм.",
     ["OptTargetsScale"]         = "Размер панели",
     ["OptTargetsColumns"]       = "Колонки",
     ["OptTargetsScaleTooltip"]  = "Масштаб панели, которая в бою показывает известных участников премейдов обеих команд.",
@@ -170,7 +205,7 @@ local ruRU = {
         .. "  2. Зайди в наш Discord\n"
         .. "  3. Привяжи Discord к Patreon (тир King of EBG)\n\n"
         .. "Команда /piq uploader покажет ссылку на скачивание.",
-    ["UploaderURL"]    = "Скачать Uploader: https://github.com/premadeiq/premadeiq-uploader/releases/latest",
+    ["UploaderURL"]    = "Скачать Uploader:\nhttps://github.com/premadeiq/premadeiq-uploader/releases/latest",
     ["DiscordURL"]     = "Discord: https://discord.gg/KGPKRWt4MG",
 
     ["Got it"]         = "Понятно",
@@ -219,11 +254,46 @@ local deDE = {
         .. "  2. Tritt unserem Discord bei\n"
         .. "  3. Verknüpfe Discord mit Patreon (Stufe King of EBG)\n\n"
         .. "Nutze /piq uploader für den Download-Link.",
-    ["UploaderURL"]    = "Uploader herunterladen: https://github.com/premadeiq/premadeiq-uploader/releases/latest",
+    ["UploaderURL"]    = "Uploader herunterladen:\nhttps://github.com/premadeiq/premadeiq-uploader/releases/latest",
     ["DiscordURL"]     = "Discord: https://discord.gg/KGPKRWt4MG",
 
     ["Got it"]         = "Verstanden",
     ["Later"]          = "Später",
+    ["MinimapTooltipClick"]        = "Klick: Einstellungen öffnen",
+    ["MinimapTooltipDrag"]         = "Ziehen: um die Minikarte bewegen",
+    ["No options panel"]           = "Einstellungsfenster auf diesem Client nicht verfügbar",
+    ["OptDebug"]                   = "Debug-Modus",
+    ["OptDebugTooltip"]            = "Ausführliche Chatmeldungen zu jeder erfassten Zeile. Entspricht /piq debug on.",
+    ["OptLanguage"]                = "Sprache",
+    ["OptLanguageTooltip"]         = "Sprache der Addon-Oberfläche. »Auto« folgt deinem Spielclient. Schlachtfeld-Warnungen bleiben in jeder Einstellung englisch, weil sie von einem gemischtsprachigen Schlachtfeld gelesen werden.",
+    ["OptLinksHeader"]             = "Links",
+    ["OptMinimapButton"]           = "Minikarten-Knopf anzeigen",
+    ["OptMinimapButtonTooltip"]    = "Ein Knopf an der Minikarte, der diese Einstellungen öffnet. Zum Verschieben um die Minikarte ziehen.",
+    ["OptPremadeAlert"]            = "Vor gegnerischen Premades warnen",
+    ["OptPremadeAlertTooltip"]     = "Beim Betreten eines Schlachtfelds bekannte Premade-Anführer melden (und Mitglieder, sofern deine Stufe sie enthält). Die Daten stammen vom PremadeIQ Uploader.",
+    ["OptPremadeSound"]            = "Ton bei Premade-Warnung",
+    ["OptPremadeSoundTooltip"]     = "Den Schlachtzugswarnungs-Ton abspielen, wenn ein Premade erkannt wird.",
+    ["OptResetBtn"]                = "Lokale Datenbank löschen…",
+    ["OptResetConfirm"]            = "Dies löscht JEDEN Spieler, jedes Match und jede Zeile aus PremadeIQ_DB.\n\nDas lässt sich nicht rückgängig machen.",
+    ["OptStatsHeader"]             = "Lokale Datenbank",
+    ["OptTargetsColumns"]          = "Spalten",
+    ["OptTargetsColumnsTooltip"]   = "In wie vielen Namensspalten jeder Teamabschnitt angeordnet wird.",
+    ["OptTargetsHeader"]           = "Spielerleiste im Match",
+    ["OptTargetsScale"]            = "Leistengröße",
+    ["OptTargetsScaleTooltip"]     = "Skalierung der Leiste, die beobachtete Spieler beider Teams auflistet.",
+    ["OptWatchAdd"]                = "Hinzufügen",
+    ["OptWatchBadName"]            = "Dieser Name war nicht lesbar. Erwartet wird Name oder Name-Realm.",
+    ["OptWatchCount"]              = "In deiner Liste",
+    ["OptWatchDuplicate"]          = "Steht schon in deiner Liste.",
+    ["OptWatchFull"]               = "Die Liste ist voll.",
+    ["OptWatchHeader"]             = "Deine Liste",
+    ["OptWatchHint"]               = "Spieler, die du im Schlachtfeld bemerken willst. Namen einfügen (im Spiel kopieren) und »Hinzufügen« drücken. Bleibt nur auf diesem Rechner — wird nie hochgeladen und niemandem gezeigt. Namen werden exakt verglichen, eine Umbenennung bricht den Eintrag.",
+    ["OptionsSubtitle"]            = "Statistiken für epische Schlachtfelder",
+    ["PremadeCatalogLoaded"]       = "Premade-Katalog: %d Anführer (Stufe: %s)",
+    ["PremadeCatalogMissing"]      = "Premade-Katalog nicht geladen (einmal über den Uploader senden, dann /reload)",
+    ["PremadeLeaders"]             = "Premade-Anführer",
+    ["PremadeMembers"]             = "Premade-Mitglieder",
+    ["PremadeNone"]                = "Kein bekannter Premade-Anführer in diesem Match",
 }
 
 -- French localization
@@ -254,11 +324,46 @@ local frFR = {
         .. "  2. Rejoignez notre Discord\n"
         .. "  3. Liez Discord à Patreon (palier King of EBG)\n\n"
         .. "La commande /piq uploader affiche le lien de téléchargement.",
-    ["UploaderURL"]    = "Télécharger l'Uploader : https://github.com/premadeiq/premadeiq-uploader/releases/latest",
+    ["UploaderURL"]    = "Télécharger l'Uploader :\nhttps://github.com/premadeiq/premadeiq-uploader/releases/latest",
     ["DiscordURL"]     = "Discord : https://discord.gg/KGPKRWt4MG",
 
     ["Got it"]         = "Compris",
     ["Later"]          = "Plus tard",
+    ["MinimapTooltipClick"]        = "Clic : ouvrir les réglages",
+    ["MinimapTooltipDrag"]         = "Glisser : déplacer autour de la minicarte",
+    ["No options panel"]           = "Fenêtre de réglages indisponible sur ce client",
+    ["OptDebug"]                   = "Mode débogage",
+    ["OptDebugTooltip"]            = "Afficher des messages détaillés pour chaque ligne collectée. Équivaut à /piq debug on.",
+    ["OptLanguage"]                = "Langue",
+    ["OptLanguageTooltip"]         = "Langue de l'interface de l'addon. « Auto » suit votre client de jeu. Les alertes de champ de bataille restent en anglais quel que soit le réglage, car elles sont lues par un champ de bataille multilingue.",
+    ["OptLinksHeader"]             = "Liens",
+    ["OptMinimapButton"]           = "Afficher le bouton de minicarte",
+    ["OptMinimapButtonTooltip"]    = "Un bouton sur la minicarte qui ouvre ces réglages. Faites-le glisser autour de la minicarte pour le déplacer.",
+    ["OptPremadeAlert"]            = "M'avertir des premades ennemis",
+    ["OptPremadeAlertTooltip"]     = "À l'entrée dans un champ de bataille, annoncer les chefs de premade connus (et les membres, si votre palier les inclut) dans l'équipe adverse. Les données viennent de PremadeIQ Uploader.",
+    ["OptPremadeSound"]            = "Jouer un son lors d'une alerte",
+    ["OptPremadeSoundTooltip"]     = "Jouer le son d'avertissement de raid quand un premade est détecté.",
+    ["OptResetBtn"]                = "Effacer la base locale…",
+    ["OptResetConfirm"]            = "Ceci effacera CHAQUE joueur, match et ligne stockés dans PremadeIQ_DB.\n\nCette action est irréversible.",
+    ["OptStatsHeader"]             = "Base de données locale",
+    ["OptTargetsColumns"]          = "Colonnes",
+    ["OptTargetsColumnsTooltip"]   = "Nombre de colonnes de noms dans chaque section d'équipe.",
+    ["OptTargetsHeader"]           = "Panneau des joueurs en match",
+    ["OptTargetsScale"]            = "Taille du panneau",
+    ["OptTargetsScaleTooltip"]     = "Échelle du panneau listant les joueurs suivis des deux équipes.",
+    ["OptWatchAdd"]                = "Ajouter",
+    ["OptWatchBadName"]            = "Nom illisible. Format attendu : Nom ou Nom-Royaume.",
+    ["OptWatchCount"]              = "Dans votre liste",
+    ["OptWatchDuplicate"]          = "Déjà dans votre liste.",
+    ["OptWatchFull"]               = "La liste est pleine.",
+    ["OptWatchHeader"]             = "Votre liste",
+    ["OptWatchHint"]               = "Joueurs que vous voulez repérer en champ de bataille. Collez un nom (copiez-le en jeu) puis appuyez sur Ajouter. Conservé sur cet ordinateur uniquement — jamais envoyé, jamais montré à personne. Les noms sont comparés à l'identique, un changement de nom casse l'entrée.",
+    ["OptionsSubtitle"]            = "Statistiques des champs de bataille épiques",
+    ["PremadeCatalogLoaded"]       = "catalogue premade : %d chefs (palier : %s)",
+    ["PremadeCatalogMissing"]      = "catalogue premade non chargé (envoyez une fois via l'Uploader, puis /reload)",
+    ["PremadeLeaders"]             = "Chefs de premade",
+    ["PremadeMembers"]             = "Membres de premade",
+    ["PremadeNone"]                = "Aucun chef de premade connu dans ce match",
 }
 
 -- Spanish localization
@@ -289,35 +394,127 @@ local esES = {
         .. "  2. Únete a nuestro Discord\n"
         .. "  3. Vincula Discord a Patreon (nivel King of EBG)\n\n"
         .. "El comando /piq uploader muestra el enlace de descarga.",
-    ["UploaderURL"]    = "Descargar Uploader: https://github.com/premadeiq/premadeiq-uploader/releases/latest",
+    ["UploaderURL"]    = "Descargar Uploader:\nhttps://github.com/premadeiq/premadeiq-uploader/releases/latest",
     ["DiscordURL"]     = "Discord: https://discord.gg/KGPKRWt4MG",
 
     ["Got it"]         = "Entendido",
     ["Later"]          = "Más tarde",
+    ["MinimapTooltipClick"]        = "Clic: abrir ajustes",
+    ["MinimapTooltipDrag"]         = "Arrastrar: mover alrededor del minimapa",
+    ["No options panel"]           = "Panel de ajustes no disponible en este cliente",
+    ["OptDebug"]                   = "Modo de depuración",
+    ["OptDebugTooltip"]            = "Mostrar mensajes detallados por cada línea recogida. Equivale a /piq debug on.",
+    ["OptLanguage"]                = "Idioma",
+    ["OptLanguageTooltip"]         = "Idioma de la interfaz del addon. «Auto» sigue a tu cliente de juego. Los avisos de campo de batalla siguen en inglés con cualquier ajuste, porque los lee un campo de batalla multilingüe.",
+    ["OptLinksHeader"]             = "Enlaces",
+    ["OptMinimapButton"]           = "Mostrar el botón del minimapa",
+    ["OptMinimapButtonTooltip"]    = "Un botón en el minimapa que abre estos ajustes. Arrástralo alrededor del minimapa para moverlo.",
+    ["OptPremadeAlert"]            = "Avisarme de premades enemigos",
+    ["OptPremadeAlertTooltip"]     = "Al entrar en un campo de batalla, anunciar a los líderes de premade conocidos (y a los miembros, si tu nivel los incluye) en el equipo rival. Los datos vienen de PremadeIQ Uploader.",
+    ["OptPremadeSound"]            = "Sonido al detectar un premade",
+    ["OptPremadeSoundTooltip"]     = "Reproducir el sonido de aviso de banda cuando se detecta un premade.",
+    ["OptResetBtn"]                = "Borrar la base local…",
+    ["OptResetConfirm"]            = "Esto borrará TODOS los jugadores, partidas y líneas guardados en PremadeIQ_DB.\n\nNo se puede deshacer.",
+    ["OptStatsHeader"]             = "Base de datos local",
+    ["OptTargetsColumns"]          = "Columnas",
+    ["OptTargetsColumnsTooltip"]   = "Cuántas columnas de nombres tiene cada sección de equipo.",
+    ["OptTargetsHeader"]           = "Panel de jugadores en partida",
+    ["OptTargetsScale"]            = "Tamaño del panel",
+    ["OptTargetsScaleTooltip"]     = "Escala del panel que lista a los jugadores seguidos de ambos equipos.",
+    ["OptWatchAdd"]                = "Añadir",
+    ["OptWatchBadName"]            = "No se pudo leer ese nombre. Se espera Nombre o Nombre-Reino.",
+    ["OptWatchCount"]              = "En tu lista",
+    ["OptWatchDuplicate"]          = "Ya está en tu lista.",
+    ["OptWatchFull"]               = "La lista está llena.",
+    ["OptWatchHeader"]             = "Tu lista",
+    ["OptWatchHint"]               = "Jugadores que quieres detectar en un campo de batalla. Pega un nombre (cópialo en el juego) y pulsa Añadir. Se guarda solo en este ordenador: nunca se envía ni se muestra a nadie. Los nombres se comparan exactamente, así que un cambio de nombre rompe la entrada.",
+    ["OptionsSubtitle"]            = "Estadísticas de campos de batalla épicos",
+    ["PremadeCatalogLoaded"]       = "catálogo de premades: %d líderes (nivel: %s)",
+    ["PremadeCatalogMissing"]      = "catálogo de premades no cargado (envía una vez con el Uploader y luego /reload)",
+    ["PremadeLeaders"]             = "Líderes de premade",
+    ["PremadeMembers"]             = "Miembros de premade",
+    ["PremadeNone"]                = "Ningún líder de premade conocido en esta partida",
 }
 
--- Apply: merge en first (fallback), then override with the active locale.
-for k, v in pairs(en) do L[k] = v end
-local locales = { ruRU = ruRU, deDE = deDE, frFR = frFR, esES = esES, esMX = esES }
-local active = locales[locale]
-if active then
-    for k, v in pairs(active) do L[k] = v end
-end
+-- ── Language resolution ─────────────────────────────────────────────────
+--
+-- The alert lines are broadcast into /rw and read by a mixed-language
+-- battleground, so they stay English on every client — the same lingua-franca
+-- convention the server's roster_analyzer follows. The targets panel sits on
+-- screen during the match and is read by stream viewers, so it stays English
+-- too (owner call).
+--
+-- A NAMED table, not an inline list inside the loop: two tests parse this file
+-- as text to check the rule is still applied, and an anonymous list forced them
+-- to split on source fragments — which silently stops matching the moment the
+-- file is restructured, leaving a green test that guards nothing.
+-- Italian. Added 2026-08-14: Pozzo dell'Eternità and Nemesis are the two
+-- Italian realms in our data, together 1.3% of everyone we have seen.
+local itIT = {
+    ["DB reset"]                   = "database locale cancellato",
+    ["DiscordURL"]                 = "Discord: https://discord.gg/KGPKRWt4MG",
+    ["Later"]                      = "Più tardi",
+    ["Match recorded"]             = "Partita registrata",
+    ["Matches"]                    = "partite",
+    ["MinimapTooltipClick"]        = "Clic: apri le impostazioni",
+    ["MinimapTooltipDrag"]         = "Trascina: sposta attorno alla minimappa",
+    ["No data yet"]                = "Ancora nessun dato",
+    ["No options panel"]           = "Pannello impostazioni non disponibile su questo client",
+    ["Not in a BG"]                = "Non sei in un campo di battaglia",
+    ["OptDebug"]                   = "Modalità debug",
+    ["OptDebugTooltip"]            = "Mostra messaggi dettagliati per ogni riga raccolta. Equivale a /piq debug on.",
+    ["OptLanguage"]                = "Lingua",
+    ["OptLanguageTooltip"]         = "Lingua dell'interfaccia dell'addon. «Auto» segue il client di gioco. Gli avvisi del campo di battaglia restano in inglese con qualsiasi impostazione, perché li legge un campo di battaglia multilingue.",
+    ["OptLinksHeader"]             = "Collegamenti",
+    ["OptMinimapButton"]           = "Mostra il pulsante sulla minimappa",
+    ["OptMinimapButtonTooltip"]    = "Un pulsante sulla minimappa che apre queste impostazioni. Trascinalo attorno alla minimappa per spostarlo.",
+    ["OptPremadeAlert"]            = "Avvisami dei premade nemici",
+    ["OptPremadeAlertTooltip"]     = "All'ingresso in un campo di battaglia, segnala i capi premade noti (e i membri, se il tuo livello li include) nella squadra avversaria. I dati arrivano da PremadeIQ Uploader.",
+    ["OptPremadeSound"]            = "Suono all'avviso premade",
+    ["OptPremadeSoundTooltip"]     = "Riproduce il suono di avviso incursione quando viene rilevato un premade.",
+    ["OptResetBtn"]                = "Cancella il database locale…",
+    ["OptResetConfirm"]            = "Questo cancellerà OGNI giocatore, partita e riga salvati in PremadeIQ_DB.\n\nL'operazione non è reversibile.",
+    ["OptStatsHeader"]             = "Database locale",
+    ["OptTargetsColumns"]          = "Colonne",
+    ["OptTargetsColumnsTooltip"]   = "Quante colonne di nomi ha ogni sezione di squadra.",
+    ["OptTargetsHeader"]           = "Pannello giocatori in partita",
+    ["OptTargetsScale"]            = "Dimensione del pannello",
+    ["OptTargetsScaleTooltip"]     = "Scala del pannello che elenca i giocatori seguiti di entrambe le squadre.",
+    ["OptWatchAdd"]                = "Aggiungi",
+    ["OptWatchBadName"]            = "Nome non leggibile. Atteso Nome oppure Nome-Reame.",
+    ["OptWatchCount"]              = "Nella tua lista",
+    ["OptWatchDuplicate"]          = "È già nella tua lista.",
+    ["OptWatchFull"]               = "La lista è piena.",
+    ["OptWatchHeader"]             = "La tua lista",
+    ["OptWatchHint"]               = "Giocatori che vuoi notare in un campo di battaglia. Incolla un nome (copialo in gioco) e premi Aggiungi. Resta solo su questo computer: non viene mai inviato né mostrato a nessuno. I nomi vengono confrontati esattamente, quindi un cambio di nome rompe la voce.",
+    ["OptionsSubtitle"]            = "Statistiche per i campi di battaglia epici",
+    ["Players in DB"]              = "Giocatori nel database",
+    ["PremadeCatalogLoaded"]       = "catalogo premade: %d capi (livello: %s)",
+    ["PremadeCatalogMissing"]      = "catalogo premade non caricato (invia una volta con l'Uploader, poi /reload)",
+    ["PremadeLeaders"]             = "Capi premade",
+    ["PremadeMembers"]             = "Membri premade",
+    ["PremadeNone"]                = "Nessun capo premade noto in questa partita",
+    ["Samples"]                    = "righe",
+    ["UploaderURL"]                = "Download dell'Uploader:\nhttps://github.com/premadeiq/premadeiq-uploader/releases/latest",
+    ["WelcomeBody"]                = "PremadeIQ raccoglie le statistiche di fine partita nei tuoi SavedVariables.\n\nPer contribuire al database della comunità e accedere al sito:\n  1. Installa PremadeIQ Uploader\n  2. Entra nel nostro Discord\n  3. Collega Discord al tuo Patreon (livello King of EBG)\n\nUsa /piq uploader per ottenere il link di download.",
+    ["WelcomeTitle"]               = "PremadeIQ installato!",
+    ["CmdHelp"]                    = "|cff33ff99PremadeIQ|r comandi:\n  /piq status           — mostra la dimensione del database\n  /piq uploader         — mostra il link di download dell'Uploader\n  /piq snapshot         — forza l'acquisizione (in campo di battaglia)\n  /piq premade          — controlla i premade noti nella squadra avversaria\n  /piq copy             — copia l'ultimo avviso premade per la chat\n  /piq debug on|off     — attiva o disattiva il debug\n  /piq reset confirm    — cancella il database\n  /piq version          — mostra la versione",
+    ["Confirm reset"]              = "Vuoi davvero cancellare il database di PremadeIQ? Scrivi /piq reset confirm per procedere.",
+    ["Debug off"]                  = "modalità debug DISATTIVA",
+    ["Debug on"]                   = "modalità debug ATTIVA",
+    ["Got it"]                     = "Ho capito",
+}
 
--- The premade alert is broadcast into /rw, read by a mixed-language BG, so its
--- lines stay English on every client — same lingua-franca convention as the
--- server's roster_analyzer (_format_message). Force the en values back after
--- the locale merge so a non-English client still shows/copies English.
-for _, k in ipairs({
+local FORCE_EN = {
     "PremadeDetected", "PremadePossible", "PremadeNoLeader",
     "PremadeLeaderLine", "PremadeNoLeaderLine", "PremadeMore",
     "PremadeGroups", "RaidLeadDetected",
-    -- The whole targets panel — header and its tooltips — sits on screen during
-    -- the match and is read by viewers on stream, so it stays English on every
-    -- client too (owner call).
     "PremadeTargetsHeader",
     "PremadeTargetLeader",
     "PremadeTargetMember",
+    "PremadeTargetWatched",
+    "PremadeTargetRaidLead",
+    "PremadeTargetRaidLeadAlso",
     "PremadeTargetGroups",
     "PremadeTargetClick",
     "PremadeTargetsEnemySection",
@@ -328,6 +525,66 @@ for _, k in ipairs({
     "PremadeTargetSideAlly",
     "PremadeTargetsMinimize",
     "PremadeTargetsTrayHint",
-}) do
-    L[k] = en[k]
+}
+ns.FORCE_EN = FORCE_EN
+
+-- A SECOND kind of deliberately-English string, and the distinction matters.
+-- These are not forced back — a locale may translate them — but nobody has, on
+-- purpose: they describe the copy-out flow whose payload is English anyway. The
+-- completeness test has to know they are allowed to be missing, or it reports a
+-- debt that is not a debt.
+ns.INTENTIONALLY_EN = {
+    "PremadeCopyHint", "PremadeCopyTip", "PremadeCopyNone",
+    "PremadeCopyBtn", "PremadeCopyBtnTip",
+}
+
+local locales = {
+    ruRU = ruRU, deDE = deDE, frFR = frFR, esES = esES, esMX = esES,
+    itIT = itIT,
+}
+ns.LOCALES = locales
+
+-- Short code (what the setting stores, what a human recognises) -> WoW's code.
+-- The dictionaries above are keyed the way GetLocale() spells things; the
+-- setting is keyed the way a language picker should read.
+local SHORT_TO_WOW = {
+    en = nil, ru = "ruRU", de = "deDE", fr = "frFR", es = "esES", it = "itIT",
+}
+ns.LANGUAGE_CODES = { "auto", "en", "ru", "de", "fr", "es", "it" }
+ns.LANGUAGE_NAMES = {
+    auto = "Auto", en = "English", ru = "Русский",
+    de = "Deutsch", fr = "Français", es = "Español", it = "Italiano",
+}
+
+-- Rebuild the strings in place for the given short code ("auto" follows the
+-- game client).
+--
+-- IN PLACE is the whole point: every file captured this table once, as
+-- `local L = ns.L`, at load time. Assigning ns.L a fresh table would leave all
+-- of them holding the old dictionary and the language would change in half the
+-- addon — a failure with no error message.
+--
+-- No wipe() needed, and deliberately so: every locale dictionary is a strict
+-- subset of `en` (measured), and nothing anywhere writes into ns.L, so pouring
+-- en over the top cannot leave a stale value behind. That also keeps this file
+-- free of wipe(), which does not exist in the Lua the CI tests run on.
+function ns.ApplyLanguage(short)
+    for k, v in pairs(en) do L[k] = v end
+    local wow = SHORT_TO_WOW[short]
+    if short == nil or short == "auto" then
+        wow = GetLocale and GetLocale() or nil
+    end
+    local active = wow and locales[wow]
+    if active then
+        for k, v in pairs(active) do L[k] = v end
+    end
+    -- Applied LAST, and on every rebuild: without this a language switch would
+    -- drag the battleground-wide strings along with it.
+    for _, k in ipairs(FORCE_EN) do L[k] = en[k] end
+    return short or "auto"
 end
+
+-- Initial pass follows the client. The saved preference cannot be read here —
+-- SavedVariables are populated after every Lua file has executed — so Main
+-- re-applies on ADDON_LOADED.
+ns.ApplyLanguage("auto")

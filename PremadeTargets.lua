@@ -111,9 +111,24 @@ end
 -- ASCII only. The 12.0.x UI font draws Latin-1 but not U+2605 BLACK STAR or
 -- U+00B7 MIDDLE DOT — both came out as empty boxes in game.
 local LEADER_MARK = "* "
+-- Personal-watchlist mark. Same ASCII-only constraint as LEADER_MARK, and
+-- deliberately different in shape so the two never read as the same claim: the
+-- star means "we know this leader", the arrow means "you asked to watch them".
+local WATCH_MARK  = "> "
+-- Marked "takes raid lead, runs no premade". Neutral on purpose — a plain fact,
+-- not an accusation, and visibly not the premade star.
+local RAID_LEAD_MARK = "~ "
 
 local function labelText(player)
-    return (player.isLeader and LEADER_MARK or "") .. displayName(player.name)
+    -- One mark, strongest claim first. A raid leader who is ALSO a known premade
+    -- member is a member here: that is the stronger statement, and the tilde
+    -- would read as "runs no premade" while contradicting their own tooltip.
+    local inPremade = player.groups and #player.groups > 0
+    local mark = (player.isLeader and LEADER_MARK)
+              or (player.isRaidLead and not inPremade and RAID_LEAD_MARK)
+              or (player.isWatched and not player.inCatalog and WATCH_MARK)
+              or ""
+    return mark .. displayName(player.name)
 end
 
 local function copyPlayers(players)
@@ -224,7 +239,33 @@ local function showTooltip(button)
     if not player then return end
     GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
     GameTooltip:SetText(player.canonicalName or player.name)
-    GameTooltip:AddLine(player.isLeader and L["PremadeTargetLeader"] or L["PremadeTargetMember"], 1, 0.82, 0)
+    -- Caption priority. It reads both facts rather than picking a lane, because
+    -- "takes raid lead" and "premade member" are NOT mutually exclusive: the
+    -- server only bars a raid_lead from LEADING a roster, so the same person is
+    -- often a confirmed member of somebody else's premade (21 of 47 on live
+    -- data). A flat chain would caption those "runs no premade" — and the
+    -- Premades: line further down this very tooltip would contradict it.
+    -- A row that is here ONLY because the owner listed it stays neutral: we
+    -- know nothing of the sort about them.
+    local inPremade = player.groups and #player.groups > 0
+    local caption
+    if player.isLeader then
+        caption = L["PremadeTargetLeader"]
+    elseif inPremade then
+        caption = L["PremadeTargetMember"]
+    elseif player.isRaidLead then
+        caption = L["PremadeTargetRaidLead"]
+    else
+        caption = L["PremadeTargetWatched"]
+    end
+    GameTooltip:AddLine(caption, 1, 0.82, 0)
+    -- Secondary facts, only when they are not already the caption.
+    if player.isRaidLead and (player.isLeader or inPremade) then
+        GameTooltip:AddLine(L["PremadeTargetRaidLeadAlso"], 0.8, 0.8, 0.8)
+    end
+    if player.isWatched and (player.isLeader or inPremade or player.isRaidLead) then
+        GameTooltip:AddLine(L["PremadeTargetWatched"], 0.75, 0.9, 0.75)
+    end
     if player.side == "ally" then
         GameTooltip:AddLine(L["PremadeTargetSideAlly"], 0.55, 0.75, 1)
     else
@@ -758,6 +799,22 @@ function Targets:RebuildCatalog()
     return self._catalogIndex
 end
 
+-- The owner's personal watchlist, as a lookup for the roster filter.
+--
+-- Rebuilt on every scan on purpose — NOT cached like the catalog above. That
+-- cache is keyed on the catalog's generated_at, which an edit to this list does
+-- not touch, so a cached watch index would never pick up a newly added name (and
+-- on a client running the neutral stub catalog, generated_at is 0 forever).
+-- The list is capped at Core.WATCH_MAX entries, so rebuilding costs nothing.
+--
+-- Read defensively: PremadeTargets handles ADDON_LOADED BEFORE Main.lua does
+-- (load order in the .toc), so nothing may assume some Init has run.
+function Targets:WatchIndex(realm)
+    local watch = type(PremadeIQ_Watch) == "table" and PremadeIQ_Watch or nil
+    if not watch then return nil end
+    return Core.WatchIndex(watch, realm)
+end
+
 -- `requestData` asks the server for a fresh scoreboard; without it we only read
 -- the cache the client already holds. The UPDATE_BATTLEFIELD_SCORE handler
 -- consumes without requesting, so a response can never be swallowed by the
@@ -802,10 +859,22 @@ function Targets:RefreshFromScoreboard(force, requestData)
     end
 
     local realm = GetNormalizedRealmName and GetNormalizedRealmName() or nil
+    -- Built BEFORE the pcall, not inside its argument list. An argument is
+    -- evaluated by the caller, so a throw in RebuildCatalog escaped the pcall
+    -- entirely, skipped the `_scanning = false` below, and left the re-entry
+    -- guard latched — one bad catalog silently killed every later scan until
+    -- /reload. Any error in here now lands in the pcall like the rest.
+    local ok, catalogIndex = pcall(self.RebuildCatalog, self)
+    if not ok then
+        self._scanning = false
+        return false
+    end
     -- Clear _scanning even if filtering or application throws: leaving it set
     -- would wedge every future scan behind the re-entry guard above.
-    local ok, players = pcall(
-        Core.FilterRoster, rows, self:RebuildCatalog(), currentSide(), realm, ownCanonicalName(realm)
+    local players
+    ok, players = pcall(
+        Core.FilterRoster, rows, catalogIndex, currentSide(), realm,
+        ownCanonicalName(realm), self:WatchIndex(realm)
     )
     self._scanning = false
     if not ok then return false end

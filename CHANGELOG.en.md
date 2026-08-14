@@ -2,6 +2,53 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.40] — 2026-08-14
+
+### Added
+- **Your own watchlist.** The addon options now have an input box: copy a
+  character name in game, paste it, and that player is marked in the targets
+  panel whenever they turn up in your battleground. The list is **yours**: it is
+  stored in a separate file on your computer only, is never uploaded, and nobody
+  else can see it. It has no effect on premade detection either — it is your
+  note, not our data. Such a row is captioned "on your watchlist" rather than
+  "known premade member", because the addon does not claim what it does not
+  know. Names are matched exactly, so after a rename the entry stops matching
+  and has to be added again.
+- **Solo raid leaders now show up in the panel.** Players who take raid lead but
+  run no premade were only ever mentioned in the warning line; the targets panel
+  did not list them at all. Now it does, marked `~` and captioned "takes raid
+  lead, no premade". They are a separate category, not a premade: such a player
+  never gets the leader star. And when someone both takes raid lead and belongs
+  to somebody's premade — roughly half of them do — the panel states both facts
+  instead of picking one.
+- **A minimap button.** Opens the addon settings, drags around the minimap edge,
+  and can be switched off in those same settings. PremadeIQ also shows up in the
+  game's own addon menu on the minimap, for people who dislike extra buttons.
+- **An addon language setting.** The options now have a "Language" row: it
+  follows your game client by default, but you can force any of the six. The
+  first reason it exists is verification — on a Russian client there was no way
+  to see what English-speaking players read, and they are 45% of the players in
+  our data. Battleground alerts stay English whatever you pick: they are read by
+  a battleground that does not share a language.
+- **German, French and Spanish are finally complete.** The addon declared five
+  languages while three of them were 22% translated: the whole settings window,
+  the tooltips and the links showed in English. German players are 22% of our
+  data, the second largest group after English.
+- **Italian added** as a sixth language, translated in full.
+
+### Fixed
+- **The settings window no longer drifts apart.** The "Columns" row and the
+  stats and links blocks crept rightwards into the next column, and the links ran
+  off the edge of the window. The cause was in the layout: each row anchored
+  itself to a button inside the row above rather than to the start of the column,
+  so the offset accumulated.
+- **The panel could go silent until you reloaded the interface.** An error while
+  reading the premade list left an internal "scan in progress" flag raised, and
+  every later refresh was skipped without a word. Such an error is now handled
+  and the panel recovers on the next update by itself.
+- **The panel heading is honest again** — "Tracked players" instead of "Known
+  premade targets": it has been listing more than premade members for a while.
+
 ## [0.9.39] — 2026-08-14
 
 ### Fixed

@@ -37,6 +37,13 @@ end
 f:SetScript("OnEvent", function(self, event, arg1, ...)
     if event == "ADDON_LOADED" and arg1 == ADDON then
         ns.Database:Init()
+        -- Locales resolved themselves from the game client while the files
+        -- were loading, because SavedVariables did not exist yet. Now they
+        -- do, so re-apply the player's own choice. The strings table is
+        -- rebuilt IN PLACE, so every file that captured it still sees it.
+        if ns.ApplyLanguage then
+            ns.ApplyLanguage(ns.Database:GetSetting("language") or "auto")
+        end
         ns.Privacy:Init()
         prnt(("v%s loaded. %s: %d"):format(
             VERSION, L["Players in DB"], ns.Database:CountPlayers()))
@@ -53,6 +60,9 @@ f:SetScript("OnEvent", function(self, event, arg1, ...)
         -- available (it's nil back on ADDON_LOADED). Keeps SavedVariables small.
         ns.Database:PruneIfReady()
         ns.Privacy:MaybeShowWelcome()
+        -- Minimap button: PLAYER_ENTERING_WORLD is the first point where
+        -- both SavedVariables and the Minimap frame are certain to exist.
+        if ns.MinimapButton then ns.MinimapButton:Refresh() end
         if C_PvP.IsBattleground and C_PvP.IsBattleground() then
             -- Back inside a battleground on a PEW: either the opening load or
             -- a /reload mid-match. The latter wiped the Collector's context
@@ -253,3 +263,20 @@ end
 
 ns.VERSION = VERSION
 _G.PIQ_NS = ns
+
+-- Addon-menu entry points. Blizzard looks these up as globals by the names
+-- given in the .toc, so they cannot live on the namespace table.
+function _G.PremadeIQ_OnCompartmentClick()
+    if ns.OpenOptions then ns.OpenOptions() end
+end
+
+function _G.PremadeIQ_OnCompartmentEnter(_, button)
+    GameTooltip:SetOwner(button or UIParent, "ANCHOR_LEFT")
+    GameTooltip:SetText("PremadeIQ " .. (ns.VERSION and ("v" .. ns.VERSION) or ""))
+    GameTooltip:AddLine(ns.L["MinimapTooltipClick"], 1, 1, 1)
+    GameTooltip:Show()
+end
+
+function _G.PremadeIQ_OnCompartmentLeave()
+    GameTooltip:Hide()
+end
