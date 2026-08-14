@@ -137,8 +137,17 @@ function Minimap_:Create()
     local icon = button:CreateTexture(nil, "BACKGROUND")
     icon:SetSize(ICON_SIZE, ICON_SIZE)
     icon:SetPoint("CENTER", button, "CENTER", 0, 1)
-    icon:SetTexture("Interface\\Icons\\achievement_bg_kill_10_fc_bgs")
-    icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    -- Our own logo, not a Blizzard icon. The previous path
+    -- (Interface\Icons\achievement_bg_kill_10_fc_bgs) is not an icon the client
+    -- has, so it resolved to the green question mark — the texture the game
+    -- shows for anything it cannot find. There is no error and no warning for
+    -- this: a bad texture path is silently the question mark, which is why it
+    -- shipped.
+    --
+    -- No SetTexCoord here. The usual 0.08-0.92 trim exists to shave the border
+    -- baked into Blizzard's square icon art; ours is already a circle with a
+    -- transparent surround, and trimming it would just crop the shield.
+    icon:SetTexture("Interface\\AddOns\\PremadeIQ\\Media\\logo.tga")
 
     local border = button:CreateTexture(nil, "OVERLAY")
     border:SetSize(53, 53)

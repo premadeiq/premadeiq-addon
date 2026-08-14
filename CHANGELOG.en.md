@@ -2,6 +2,16 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.41] — 2026-08-15
+
+### Fixed
+- **The minimap button has its own emblem now.** Yesterday's button drew a green
+  question mark — the texture the game substitutes for anything it cannot find.
+  The icon path pointed at a Blizzard icon that does not exist, and the client
+  says nothing about that: no error, no warning, just the question mark. The
+  button now carries the PremadeIQ logo, and so does the addon list and the
+  game's own addon compartment.
+
 ## [0.9.40] — 2026-08-14
 
 ### Added
