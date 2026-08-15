@@ -103,6 +103,17 @@ FORBIDDEN_CONTENT = (
 
 TEXT_SUFFIXES = (".lua", ".md", ".toc", ".xml", ".txt", ".yml", ".yaml")
 
+# The one address the addon is allowed to name. Until 2026-08-16 the only
+# download link it carried pointed at a repository that does not exist, so
+# `/piq uploader` answered every player with a 404 — the addon has to be able
+# to say where the companion app lives.
+#
+# Deliberately narrow: the full scheme plus the /install path, with whatever
+# trailing anchor or query the page needs. The host on its own, any other
+# path, and a scheme-less mention all still fail — the exception exists to
+# ship one working link to players, not to unlock the hostname.
+ALLOWED_URL_RE = re.compile(r"https://premadeiq\.duckdns\.org/install[^\s\"'<>)]*")
+
 
 def _is_text(name: str) -> bool:
     return name.lower().endswith(TEXT_SUFFIXES)
@@ -120,6 +131,11 @@ def _skip_content(rel: str) -> bool:
 
 
 def content_violation(text: str) -> str | None:
+    # Blank out the allowed link first, so the hostname inside it doesn't trip
+    # the duckdns rule. Replaced by a space, not by nothing: the IPv4 rule is
+    # anchored on \b, and splicing the neighbours together could manufacture a
+    # match that was never in the file.
+    text = ALLOWED_URL_RE.sub(" ", text)
     for rx, label in FORBIDDEN_CONTENT:
         if rx.search(text):
             return label

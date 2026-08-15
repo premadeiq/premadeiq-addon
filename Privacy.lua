@@ -28,7 +28,17 @@ function Privacy:MaybeShowWelcome()
         text = L["WelcomeBody"],
         button1 = L["Got it"],
         button2 = L["Later"],
-        OnAccept = function() Privacy:MarkWelcomeSeen() end,
+        OnAccept = function()
+            Privacy:MarkWelcomeSeen()
+            -- Hand over the address right away: the welcome text names the
+            -- Uploader, and the next thing the player needs is something they
+            -- can copy. Deferred by a frame because this runs while the
+            -- welcome popup is still on screen, and StaticPopup only sorts out
+            -- its slots once the current one is gone.
+            if ns.ShowUploaderLink then
+                C_Timer.After(0, ns.ShowUploaderLink)
+            end
+        end,
         OnCancel = function() end, -- Don't mark seen on "Later" — show again next login
         timeout = 0,
         whileDead = true,

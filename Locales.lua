@@ -35,7 +35,13 @@ local en = {
     ["PremadeMembers"]         = "Premade members",
     ["PremadeNone"]            = "No known premade leader in this match",
     ["PremadeCatalogLoaded"]   = "premade catalog: %d leaders (tier: %s)",
-    ["PremadeCatalogMissing"]  = "premade catalog not loaded (upload once via the Uploader, then /reload)",
+    ["PremadeCatalogMissing"]  = "premade catalog is empty — the warnings have nothing to match against yet. It ships with the Uploader: %s",
+    -- Printed on entering an Epic BG, at most once a week. Two branches:
+    -- the Uploader was never here, or it was and the access has lapsed.
+    ["CatalogHintNoUploader"]  = "Premade warnings are silent: the known-premade list comes with the Uploader — %s",
+    ["CatalogHintStale"]       = "Premade warnings are silent: your access lapsed. Upload one finished Epic BG to reopen it.",
+    -- Printed after a recorded match, while no upload has ever been seen.
+    ["MatchNeedsReload"]       = "Type /reload (or log out) so WoW writes this match to disk — until then the Uploader can't see it.",
     ["PremadeCopyTip"]         = "Click «Copy premade alert» (or /piq copy) to copy this for chat",
     ["PremadeCopyHint"]        = "Ctrl+C to copy, then paste into chat (e.g. /rw):",
     ["PremadeCopyNone"]        = "No recent premade alert to copy.",
@@ -95,13 +101,23 @@ local en = {
 
     -- Welcome dialog
     ["WelcomeTitle"]   = "PremadeIQ installed!",
-    ["WelcomeBody"]    = "PremadeIQ collects post-match BG stats into your SavedVariables.\n\n"
-        .. "To contribute to the community database and access the website:\n"
-        .. "  1. Install PremadeIQ Uploader\n"
-        .. "  2. Join our Discord\n"
-        .. "  3. Link Discord to your Patreon (King of EBG tier)\n\n"
-        .. "Use /piq uploader to get the download link.",
-    ["UploaderURL"]    = "Uploader download:\nhttps://github.com/premadeiq/premadeiq-uploader/releases/latest",
+    ["WelcomeBody"]    = "PremadeIQ records post-match Epic BG stats into your SavedVariables.\n\n"
+        .. "The premade warnings stay silent until you connect: the list of known\n"
+        .. "premades is community data, and it arrives with the Uploader.\n\n"
+        .. "  1. Install PremadeIQ Uploader (a Discord account is enough —\n"
+        .. "     you don't have to join anything)\n"
+        .. "  2. Play one Epic BG and let it upload\n\n"
+        .. "One finished Epic BG a week keeps it open: premade warnings, the full\n"
+        .. "leaderboard and deserters. Free.\n\n"
+        .. "Optional: the King of EBG tier on Patreon adds deeper dashboard tools.\n"
+        .. "Use /piq uploader to see the link again.",
+    ["UploaderURL"]    = "Uploader download:\nhttps://premadeiq.duckdns.org/install",
+    -- Bare address for the copy box: the line above carries a caption and a
+    -- newline, which an edit box would show verbatim.
+    ["UploaderURLBare"] = "https://premadeiq.duckdns.org/install",
+    -- Title of the copy box. Deliberately English everywhere, like the rest
+    -- of the copy-out flow (see INTENTIONALLY_EN).
+    ["UploaderCopyTitle"] = "Ctrl+C to copy, then open it in your browser:",
     ["DiscordURL"]     = "Discord: https://discord.gg/KGPKRWt4MG",
 
     ["Got it"]         = "Got it",
@@ -147,7 +163,10 @@ local ruRU = {
     ["PremadeMembers"]         = "Участники премейда",
     ["PremadeNone"]            = "Известного лидера премейда в этом бою нет",
     ["PremadeCatalogLoaded"]   = "каталог премейдов: %d лидеров (тир: %s)",
-    ["PremadeCatalogMissing"]  = "каталог премейдов не загружен (загрузи бой через Uploader, затем /reload)",
+    ["PremadeCatalogMissing"]  = "каталог премейдов пуст — предупреждениям пока не с чем сверяться. Каталог приходит вместе с Uploader: %s",
+    ["CatalogHintNoUploader"]  = "Предупреждения о премейдах молчат: список известных премейдов приходит с Uploader — %s",
+    ["CatalogHintStale"]       = "Предупреждения о премейдах молчат: доступ протух. Выгрузи один доигранный эпический бой, и он откроется снова.",
+    ["MatchNeedsReload"]       = "Набери /reload (или выйди из игры) — только тогда WoW запишет этот бой на диск, до этого Uploader его не увидит.",
     -- Copy-flow strings are intentionally English even on a ruRU client: the
     -- premade call-out is pasted into the English-facing community (/rw, Discord).
     ["PremadeCopyTip"]         = "Click «Copy premade alert» (or /piq copy) to copy this for chat",
@@ -199,13 +218,17 @@ local ruRU = {
         .. "  /piq version          — версия",
 
     ["WelcomeTitle"]   = "PremadeIQ установлен!",
-    ["WelcomeBody"]    = "PremadeIQ собирает постматчевую статистику BG в ваши SavedVariables.\n\n"
-        .. "Чтобы вносить данные в общую базу и получить доступ к сайту:\n"
-        .. "  1. Установи PremadeIQ Uploader\n"
-        .. "  2. Зайди в наш Discord\n"
-        .. "  3. Привяжи Discord к Patreon (тир King of EBG)\n\n"
-        .. "Команда /piq uploader покажет ссылку на скачивание.",
-    ["UploaderURL"]    = "Скачать Uploader:\nhttps://github.com/premadeiq/premadeiq-uploader/releases/latest",
+    ["WelcomeBody"]    = "PremadeIQ записывает статистику эпических боёв в ваши SavedVariables.\n\n"
+        .. "Предупреждения о премейдах будут молчать, пока ты не подключишься:\n"
+        .. "список известных премейдов — это данные сообщества, и приносит их Uploader.\n\n"
+        .. "  1. Установи PremadeIQ Uploader (хватит аккаунта Discord —\n"
+        .. "     вступать никуда не нужно)\n"
+        .. "  2. Сыграй один эпический бой и дай ему выгрузиться\n\n"
+        .. "Один доигранный эпический бой в неделю держит доступ открытым:\n"
+        .. "предупреждения о премейдах, полный лидерборд, дезертиры. Бесплатно.\n\n"
+        .. "По желанию: тир King of EBG на Patreon добавляет разбор на сайте.\n"
+        .. "Команда /piq uploader покажет ссылку ещё раз.",
+    ["UploaderURL"]    = "Скачать Uploader:\nhttps://premadeiq.duckdns.org/install",
     ["DiscordURL"]     = "Discord: https://discord.gg/KGPKRWt4MG",
 
     ["Got it"]         = "Понятно",
@@ -248,13 +271,17 @@ local deDE = {
         .. "  /piq version          — Version",
 
     ["WelcomeTitle"]   = "PremadeIQ installiert!",
-    ["WelcomeBody"]    = "PremadeIQ sammelt Post-Match-BG-Statistiken in deinen SavedVariables.\n\n"
-        .. "Um zur Community-Datenbank beizutragen und die Website zu nutzen:\n"
-        .. "  1. Installiere PremadeIQ Uploader\n"
-        .. "  2. Tritt unserem Discord bei\n"
-        .. "  3. Verknüpfe Discord mit Patreon (Stufe King of EBG)\n\n"
-        .. "Nutze /piq uploader für den Download-Link.",
-    ["UploaderURL"]    = "Uploader herunterladen:\nhttps://github.com/premadeiq/premadeiq-uploader/releases/latest",
+    ["WelcomeBody"]    = "PremadeIQ zeichnet Statistiken epischer Schlachtfelder in deinen SavedVariables auf.\n\n"
+        .. "Die Premade-Hinweise bleiben stumm, bis du dich verbindest: Die Liste\n"
+        .. "bekannter Premades sind Community-Daten und kommt mit dem Uploader.\n\n"
+        .. "  1. Installiere PremadeIQ Uploader (ein Discord-Konto genügt —\n"
+        .. "     du musst nirgendwo beitreten)\n"
+        .. "  2. Spiel ein episches BG und lass es hochladen\n\n"
+        .. "Ein zu Ende gespieltes episches BG pro Woche hält alles offen:\n"
+        .. "Premade-Hinweise, das volle Leaderboard, Deserteure. Kostenlos.\n\n"
+        .. "Optional: Die Patreon-Stufe King of EBG bringt tiefere Auswertungen.\n"
+        .. "Mit /piq uploader siehst du den Link erneut.",
+    ["UploaderURL"]    = "Uploader herunterladen:\nhttps://premadeiq.duckdns.org/install",
     ["DiscordURL"]     = "Discord: https://discord.gg/KGPKRWt4MG",
 
     ["Got it"]         = "Verstanden",
@@ -290,7 +317,10 @@ local deDE = {
     ["OptWatchHint"]               = "Spieler, die du im Schlachtfeld bemerken willst. Namen einfügen (im Spiel kopieren) und »Hinzufügen« drücken. Bleibt nur auf diesem Rechner — wird nie hochgeladen und niemandem gezeigt. Namen werden exakt verglichen, eine Umbenennung bricht den Eintrag.",
     ["OptionsSubtitle"]            = "Statistiken für epische Schlachtfelder",
     ["PremadeCatalogLoaded"]       = "Premade-Katalog: %d Anführer (Stufe: %s)",
-    ["PremadeCatalogMissing"]      = "Premade-Katalog nicht geladen (einmal über den Uploader senden, dann /reload)",
+    ["PremadeCatalogMissing"]      = "Premade-Katalog ist leer — die Hinweise haben noch nichts zum Abgleichen. Er kommt mit dem Uploader: %s",
+    ["CatalogHintNoUploader"]      = "Premade-Hinweise bleiben stumm: Die Liste bekannter Premades kommt mit dem Uploader — %s",
+    ["CatalogHintStale"]           = "Premade-Hinweise bleiben stumm: Dein Zugang ist abgelaufen. Lade ein zu Ende gespieltes episches BG hoch, dann geht er wieder auf.",
+    ["MatchNeedsReload"]           = "Gib /reload ein (oder logge dich aus) — erst dann schreibt WoW dieses Match auf die Festplatte, vorher sieht der Uploader es nicht.",
     ["PremadeLeaders"]             = "Premade-Anführer",
     ["PremadeMembers"]             = "Premade-Mitglieder",
     ["PremadeNone"]                = "Kein bekannter Premade-Anführer in diesem Match",
@@ -318,13 +348,17 @@ local frFR = {
         .. "  /piq version          — version",
 
     ["WelcomeTitle"]   = "PremadeIQ installé !",
-    ["WelcomeBody"]    = "PremadeIQ collecte les stats post-match des BG dans vos SavedVariables.\n\n"
-        .. "Pour contribuer à la base commune et accéder au site :\n"
-        .. "  1. Installez PremadeIQ Uploader\n"
-        .. "  2. Rejoignez notre Discord\n"
-        .. "  3. Liez Discord à Patreon (palier King of EBG)\n\n"
-        .. "La commande /piq uploader affiche le lien de téléchargement.",
-    ["UploaderURL"]    = "Télécharger l'Uploader :\nhttps://github.com/premadeiq/premadeiq-uploader/releases/latest",
+    ["WelcomeBody"]    = "PremadeIQ enregistre les stats des BG épiques dans vos SavedVariables.\n\n"
+        .. "Les alertes premade restent muettes tant que vous n'êtes pas connecté :\n"
+        .. "la liste des premades connus vient de la communauté, via l'Uploader.\n\n"
+        .. "  1. Installez PremadeIQ Uploader (un compte Discord suffit —\n"
+        .. "     inutile de rejoindre quoi que ce soit)\n"
+        .. "  2. Jouez un BG épique et laissez-le s'envoyer\n\n"
+        .. "Un BG épique terminé par semaine garde tout ouvert : alertes premade,\n"
+        .. "classement complet, déserteurs. Gratuit.\n\n"
+        .. "Facultatif : le palier King of EBG sur Patreon ajoute des analyses.\n"
+        .. "La commande /piq uploader réaffiche le lien.",
+    ["UploaderURL"]    = "Télécharger l'Uploader :\nhttps://premadeiq.duckdns.org/install",
     ["DiscordURL"]     = "Discord : https://discord.gg/KGPKRWt4MG",
 
     ["Got it"]         = "Compris",
@@ -360,7 +394,10 @@ local frFR = {
     ["OptWatchHint"]               = "Joueurs que vous voulez repérer en champ de bataille. Collez un nom (copiez-le en jeu) puis appuyez sur Ajouter. Conservé sur cet ordinateur uniquement — jamais envoyé, jamais montré à personne. Les noms sont comparés à l'identique, un changement de nom casse l'entrée.",
     ["OptionsSubtitle"]            = "Statistiques des champs de bataille épiques",
     ["PremadeCatalogLoaded"]       = "catalogue premade : %d chefs (palier : %s)",
-    ["PremadeCatalogMissing"]      = "catalogue premade non chargé (envoyez une fois via l'Uploader, puis /reload)",
+    ["PremadeCatalogMissing"]      = "le catalogue premade est vide — les alertes n'ont rien à comparer. Il arrive avec l'Uploader : %s",
+    ["CatalogHintNoUploader"]      = "Les alertes premade sont muettes : la liste des premades connus vient avec l'Uploader — %s",
+    ["CatalogHintStale"]           = "Les alertes premade sont muettes : votre accès a expiré. Envoyez un BG épique terminé pour le rouvrir.",
+    ["MatchNeedsReload"]           = "Tapez /reload (ou déconnectez-vous) : c'est seulement là que WoW écrit ce match sur le disque, avant cela l'Uploader ne le voit pas.",
     ["PremadeLeaders"]             = "Chefs de premade",
     ["PremadeMembers"]             = "Membres de premade",
     ["PremadeNone"]                = "Aucun chef de premade connu dans ce match",
@@ -388,13 +425,17 @@ local esES = {
         .. "  /piq version          — versión",
 
     ["WelcomeTitle"]   = "¡PremadeIQ instalado!",
-    ["WelcomeBody"]    = "PremadeIQ recopila estadísticas post-match de BG en tus SavedVariables.\n\n"
-        .. "Para contribuir a la base común y acceder al sitio:\n"
-        .. "  1. Instala PremadeIQ Uploader\n"
-        .. "  2. Únete a nuestro Discord\n"
-        .. "  3. Vincula Discord a Patreon (nivel King of EBG)\n\n"
-        .. "El comando /piq uploader muestra el enlace de descarga.",
-    ["UploaderURL"]    = "Descargar Uploader:\nhttps://github.com/premadeiq/premadeiq-uploader/releases/latest",
+    ["WelcomeBody"]    = "PremadeIQ registra las estadísticas de los BG épicos en tus SavedVariables.\n\n"
+        .. "Los avisos de premade seguirán en silencio hasta que te conectes:\n"
+        .. "la lista de premades conocidos es dato de la comunidad y llega con el Uploader.\n\n"
+        .. "  1. Instala PremadeIQ Uploader (basta una cuenta de Discord —\n"
+        .. "     no hace falta entrar en ningún sitio)\n"
+        .. "  2. Juega un BG épico y deja que se suba\n\n"
+        .. "Un BG épico terminado por semana lo mantiene abierto: avisos de premade,\n"
+        .. "clasificación completa, desertores. Gratis.\n\n"
+        .. "Opcional: el nivel King of EBG en Patreon añade más análisis.\n"
+        .. "El comando /piq uploader vuelve a mostrar el enlace.",
+    ["UploaderURL"]    = "Descargar Uploader:\nhttps://premadeiq.duckdns.org/install",
     ["DiscordURL"]     = "Discord: https://discord.gg/KGPKRWt4MG",
 
     ["Got it"]         = "Entendido",
@@ -430,7 +471,10 @@ local esES = {
     ["OptWatchHint"]               = "Jugadores que quieres detectar en un campo de batalla. Pega un nombre (cópialo en el juego) y pulsa Añadir. Se guarda solo en este ordenador: nunca se envía ni se muestra a nadie. Los nombres se comparan exactamente, así que un cambio de nombre rompe la entrada.",
     ["OptionsSubtitle"]            = "Estadísticas de campos de batalla épicos",
     ["PremadeCatalogLoaded"]       = "catálogo de premades: %d líderes (nivel: %s)",
-    ["PremadeCatalogMissing"]      = "catálogo de premades no cargado (envía una vez con el Uploader y luego /reload)",
+    ["PremadeCatalogMissing"]      = "el catálogo de premades está vacío — los avisos no tienen con qué comparar. Llega con el Uploader: %s",
+    ["CatalogHintNoUploader"]      = "Los avisos de premade están en silencio: la lista de premades conocidos llega con el Uploader — %s",
+    ["CatalogHintStale"]           = "Los avisos de premade están en silencio: tu acceso caducó. Sube un BG épico terminado y se abre otra vez.",
+    ["MatchNeedsReload"]           = "Escribe /reload (o cierra sesión): solo entonces WoW escribe este partido en el disco, antes el Uploader no lo ve.",
     ["PremadeLeaders"]             = "Líderes de premade",
     ["PremadeMembers"]             = "Miembros de premade",
     ["PremadeNone"]                = "Ningún líder de premade conocido en esta partida",
@@ -490,13 +534,16 @@ local itIT = {
     ["OptionsSubtitle"]            = "Statistiche per i campi di battaglia epici",
     ["Players in DB"]              = "Giocatori nel database",
     ["PremadeCatalogLoaded"]       = "catalogo premade: %d capi (livello: %s)",
-    ["PremadeCatalogMissing"]      = "catalogo premade non caricato (invia una volta con l'Uploader, poi /reload)",
+    ["PremadeCatalogMissing"]      = "il catalogo premade è vuoto — gli avvisi non hanno ancora nulla con cui confrontare. Arriva con l'Uploader: %s",
+    ["CatalogHintNoUploader"]      = "Gli avvisi premade restano muti: l'elenco dei premade noti arriva con l'Uploader — %s",
+    ["CatalogHintStale"]           = "Gli avvisi premade restano muti: il tuo accesso è scaduto. Carica un BG epico portato a termine e si riapre.",
+    ["MatchNeedsReload"]           = "Digita /reload (o esci dal gioco): solo allora WoW scrive questa partita su disco, prima l'Uploader non la vede.",
     ["PremadeLeaders"]             = "Capi premade",
     ["PremadeMembers"]             = "Membri premade",
     ["PremadeNone"]                = "Nessun capo premade noto in questa partita",
     ["Samples"]                    = "righe",
-    ["UploaderURL"]                = "Download dell'Uploader:\nhttps://github.com/premadeiq/premadeiq-uploader/releases/latest",
-    ["WelcomeBody"]                = "PremadeIQ raccoglie le statistiche di fine partita nei tuoi SavedVariables.\n\nPer contribuire al database della comunità e accedere al sito:\n  1. Installa PremadeIQ Uploader\n  2. Entra nel nostro Discord\n  3. Collega Discord al tuo Patreon (livello King of EBG)\n\nUsa /piq uploader per ottenere il link di download.",
+    ["UploaderURL"]                = "Download dell'Uploader:\nhttps://premadeiq.duckdns.org/install",
+    ["WelcomeBody"]                = "PremadeIQ registra le statistiche dei BG epici nei tuoi SavedVariables.\n\nGli avvisi sui premade restano muti finché non ti colleghi: l'elenco dei premade noti è un dato della comunità e arriva con l'Uploader.\n\n  1. Installa PremadeIQ Uploader (basta un account Discord — non devi entrare da nessuna parte)\n  2. Gioca un BG epico e lascialo caricare\n\nUn BG epico portato a termine a settimana tiene tutto aperto: avvisi sui premade, classifica completa, disertori. Gratis.\n\nFacoltativo: il livello King of EBG su Patreon aggiunge analisi più approfondite.\nUsa /piq uploader per rivedere il link.",
     ["WelcomeTitle"]               = "PremadeIQ installato!",
     ["CmdHelp"]                    = "|cff33ff99PremadeIQ|r comandi:\n  /piq status           — mostra la dimensione del database\n  /piq uploader         — mostra il link di download dell'Uploader\n  /piq snapshot         — forza l'acquisizione (in campo di battaglia)\n  /piq premade          — controlla i premade noti nella squadra avversaria\n  /piq copy             — copia l'ultimo avviso premade per la chat\n  /piq debug on|off     — attiva o disattiva il debug\n  /piq reset confirm    — cancella il database\n  /piq version          — mostra la versione",
     ["Confirm reset"]              = "Vuoi davvero cancellare il database di PremadeIQ? Scrivi /piq reset confirm per procedere.",
@@ -536,6 +583,11 @@ ns.FORCE_EN = FORCE_EN
 ns.INTENTIONALLY_EN = {
     "PremadeCopyHint", "PremadeCopyTip", "PremadeCopyNone",
     "PremadeCopyBtn", "PremadeCopyBtnTip",
+    -- Same flow, same reason: the payload is a URL, and "Ctrl+C" reads the
+    -- same in every language this addon ships.
+    "UploaderCopyTitle",
+    -- A bare address is not translatable text.
+    "UploaderURLBare",
 }
 
 local locales = {

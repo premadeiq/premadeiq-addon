@@ -30,13 +30,19 @@ on the website, you install a separate app — **PremadeIQ Uploader** (optional)
 
 ## Sharing data with the community
 
+The addon ships with an empty list of known organized groups, and it cannot
+fetch anything by itself — that list is community-contributed data, and it
+arrives with the Uploader. Without it the notice feature has nothing to match
+against and stays quiet.
+
 1. Install **PremadeIQ Uploader** — a separate app that reads your
    `SavedVariables` and sends the statistics to the PremadeIQ server.
-   [Download](https://github.com/premadeiq/premadeiq-uploader/releases/latest)
-2. Join the [Discord](https://discord.gg/KGPKRWt4MG).
-3. (optional) The **King of EBG** Patreon tier grants a Discord role and
-   extended access to the stats.
-4. Run the Uploader → it starts syncing.
+   [Install guide](https://premadeiq.duckdns.org/install)
+2. Sign in with Discord (any Discord account — you don't have to join a
+   server), play one Epic BG, and type `/reload` or log out so the game
+   writes the match to disk.
+3. One finished Epic BG a week keeps your access open. Free.
+4. (optional) The **King of EBG** Patreon tier adds deeper stats on the site.
 
 Don't want to share? Just don't install the Uploader — the addon stays purely
 local.

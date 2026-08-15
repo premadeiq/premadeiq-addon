@@ -2,6 +2,39 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.42] — 2026-08-16
+
+### Fixed
+- **The Uploader link led nowhere — and had since the first public release.**
+  `/piq uploader` printed the address of a repository that does not exist, so
+  everyone who wanted to share their matches hit a 404. It now points at the
+  install page: https://premadeiq.duckdns.org/install — and opens a small box
+  with the address already selected, because chat text cannot be selected in
+  this client and retyping a URL by hand is nobody's idea of a good time.
+
+### Added
+- **The addon no longer stays quiet about an empty premade list.** It ships
+  with that list empty and cannot fetch anything on its own — the list is
+  community-contributed data and arrives with the Uploader. Until now that
+  looked exactly like a feature that doesn't work. On entering an Epic
+  battleground the addon now says once (at most weekly) what is missing and
+  what fixes it. If the Uploader has run before and access simply lapsed, the
+  wording is different — "upload one match", not "install the app". Those are
+  two different situations and conflating them would be dishonest.
+- **A `/reload` reminder after a recorded match.** "Match recorded" means
+  "kept in memory", not "sent": the game only writes SavedVariables to disk on
+  `/reload` or logout. Until then the Uploader genuinely sees nothing and looks
+  broken. Shown only to accounts that have never uploaded.
+
+### Changed
+- **The welcome dialog was rewritten.** Step three used to be "link Discord to
+  your Patreon", which made the whole thing read as "paid from here on". It
+  isn't: one finished Epic BG a week opens premade warnings, the full
+  leaderboard and deserters, for free. Joining a Discord server is no longer
+  required either — any Discord account works. Patreon is still there, in the
+  place it belongs: one optional line.
+- `/piq status` on an empty catalog now shows where to get one.
+
 ## [0.9.41] — 2026-08-15
 
 ### Fixed

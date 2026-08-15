@@ -34,6 +34,81 @@ local function prnt(msg)
     print("|cff33ff99PremadeIQ|r " .. msg)
 end
 
+-- ---------------------------------------------------------------------
+-- Onboarding: the address, and when to bring it up
+--
+-- The addon ships with an empty premade list (the public zip carries a
+-- neutral KnownPremades stub) and cannot fetch anything itself — the list
+-- arrives with the Uploader. A player who never installs it sees a feature
+-- that silently does nothing, so the two moments where that becomes
+-- obvious (entering an Epic BG, finishing one) say so once, quietly.
+-- ---------------------------------------------------------------------
+
+-- A copyable address box. WoW cannot open a browser for us, so the most a
+-- link can be is text the player can select — an edit box with the text
+-- pre-selected is the closest thing to a clickable link the client allows.
+StaticPopupDialogs["PREMADEIQ_LINK"] = {
+    text = "PremadeIQ",           -- replaced per show: the language is switchable
+    button1 = CLOSE or "Close",
+    hasEditBox = true,
+    editBoxWidth = 350,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+    OnShow = function(dialog, data)
+        local eb = dialog.editBox or dialog.EditBox
+        if eb then
+            eb:SetText(data or "")
+            eb:HighlightText()
+            eb:SetFocus()
+        end
+    end,
+    EditBoxOnEscapePressed = function(eb) eb:GetParent():Hide() end,
+    EditBoxOnEnterPressed  = function(eb) eb:GetParent():Hide() end,
+}
+
+local function showLinkDialog()
+    StaticPopupDialogs["PREMADEIQ_LINK"].text = "PremadeIQ — " .. L["UploaderCopyTitle"]
+    StaticPopup_Show("PREMADEIQ_LINK", nil, nil, L["UploaderURLBare"])
+end
+ns.ShowUploaderLink = showLinkDialog
+
+-- Has an Uploader ever written its watermark for any character on this
+-- account? That is the honest test for "is this player connected at all" —
+-- an empty catalog alone cannot tell "never installed it" from "installed,
+-- but access lapsed", and those need different advice.
+local function uploaderSeen()
+    local st = PremadeIQ_UploadState
+    if type(st) ~= "table" or type(st.cursors) ~= "table" then return false end
+    for _ in pairs(st.cursors) do return true end
+    return false
+end
+ns.UploaderSeen = uploaderSeen
+
+local CATALOG_HINT_EVERY_SEC = 7 * 24 * 60 * 60
+
+-- One line on entering an Epic BG, at most once a week. Called from both
+-- entry points (match start and context restore after a /reload mid-match),
+-- so the timestamp is written next to the print, not by the caller.
+local function maybeCatalogHint()
+    if ns.Database and ns.Database:GetSetting("premadeAlert") == false then return end
+
+    local nlead = 0
+    if ns.PremadeAlert then nlead = ns.PremadeAlert:CatalogInfo() or 0 end
+    if nlead > 0 then return end          -- catalog is there, nothing to say
+
+    local last = tonumber(ns.Database and ns.Database:GetSetting("catalogHintAt")) or 0
+    if time() - last < CATALOG_HINT_EVERY_SEC then return end
+
+    if uploaderSeen() then
+        prnt("|cff888888" .. L["CatalogHintStale"] .. "|r")
+    else
+        prnt("|cff888888" .. (L["CatalogHintNoUploader"]):format(L["UploaderURLBare"]) .. "|r")
+    end
+    if ns.Database then ns.Database:SetSetting("catalogHintAt", time()) end
+end
+
 f:SetScript("OnEvent", function(self, event, arg1, ...)
     if event == "ADDON_LOADED" and arg1 == ADDON then
         ns.Database:Init()
@@ -78,6 +153,7 @@ f:SetScript("OnEvent", function(self, event, arg1, ...)
                 -- services that gate on that can run for the rest of the match.
                 if ns.Deserter then ns.Deserter:OnMatchActive() end
                 if ns.PremadeAlert then ns.PremadeAlert:OnMatchActive() end
+                maybeCatalogHint()
             end
         else
             -- Left the BG (clean end, kick, or disconnect). Reset the start-
@@ -113,6 +189,7 @@ f:SetScript("OnEvent", function(self, event, arg1, ...)
         if ns.Collector:IsEBGMatch() then
             if ns.Deserter then ns.Deserter:OnMatchActive() end
             if ns.PremadeAlert then ns.PremadeAlert:OnMatchActive() end
+            maybeCatalogHint()
         end
 
     elseif event == "UPDATE_BATTLEFIELD_SCORE" then
@@ -151,6 +228,14 @@ f:SetScript("OnEvent", function(self, event, arg1, ...)
                 ns.Collector:AdoptInstanceID(liveID)
                 ns.Collector:ScheduleSnapshotMatch(function(n)
                     prnt(("%s: %d"):format(L["Match recorded"], n))
+                    -- "Match recorded" means "kept in memory", and a player who
+                    -- has never uploaded reads it as "sent". WoW only flushes
+                    -- SavedVariables on /reload or logout, so the Uploader finds
+                    -- nothing and looks broken. Said once per match, and only
+                    -- while no upload has ever happened on this account.
+                    if not uploaderSeen() then
+                        prnt("|cff888888" .. L["MatchNeedsReload"] .. "|r")
+                    end
                 end)
             else
                 ns.Collector:Debug(("COMPLETE skipped: non-EBG (instance=%s)")
@@ -186,7 +271,7 @@ local function cmdStatus()
         if n and n > 0 then
             prnt((L["PremadeCatalogLoaded"]):format(n, tier or "?"))
         else
-            prnt(L["PremadeCatalogMissing"])
+            prnt((L["PremadeCatalogMissing"]):format(L["UploaderURLBare"]))
         end
     end
 end
@@ -227,6 +312,10 @@ end
 local function cmdUploader()
     prnt(L["UploaderURL"])
     prnt(L["DiscordURL"])
+    -- The chat line is for reading; the dialog is for copying. Chat text
+    -- cannot be selected in this client, so without the box the address has
+    -- to be retyped by hand into a browser.
+    showLinkDialog()
 end
 
 SlashCmdList["PREMADEIQ"] = function(msg)

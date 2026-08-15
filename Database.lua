@@ -19,7 +19,9 @@ local ADDON, ns = ...
 --     snapshots = { { takenAt, players = [{guid, dmg, heal, kb, deaths, objective, faction}, ...] }, ... },
 --   }, ... },
 --   privacy = { firstSeenAt, welcomeSeen },
---   settings = { debug=false, uploaderHintShown=false },
+--   -- catalogHintAt: unix time of the last "your premade list is empty" line
+--   -- printed on entering an Epic BG. Throttles it to once a week (Main.lua).
+--   settings = { debug=false, language="auto", premadeAlert=true, catalogHintAt=0 },
 --   -- Live match context parked so it survives a /reload (Collector.lua).
 --   -- Written on PVP_MATCH_ACTIVE for EBGs, read back on the next
 --   -- PLAYER_ENTERING_WORLD, dropped when the match really ends. Absent
