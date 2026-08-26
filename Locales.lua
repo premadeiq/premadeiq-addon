@@ -40,6 +40,15 @@ local en = {
     -- the Uploader was never here, or it was and the access has lapsed.
     ["CatalogHintNoUploader"]  = "Premade warnings are silent: the known-premade list comes with the Uploader — %s",
     ["CatalogHintStale"]       = "Premade warnings are silent: your access lapsed. Upload one finished Epic BG to reopen it.",
+    -- The Uploader stopped running: battles pile up locally and the player
+    -- has no way to notice. %d = battles waiting, %d = days since it last ran.
+    ["UploadSilent"]           = "%d battles have not been sent — the Uploader has not run in %d days.",
+    ["UploadSilentSoon"]       = "Catalog access needs one upload every %d days — about %d left.",
+    ["UploadSilentLapsed"]     = "Catalog access has likely lapsed: it needs one upload every %d days. Start the Uploader to reopen it.",
+    -- Shown by /piq on demand, including the healthy case. %d = battles
+    -- waiting, %d = days since the Uploader last wrote its watermark.
+    ["UploadPending"]          = "Waiting to be sent: %d battles (the Uploader last wrote %d days ago).",
+    ["UploadUpToDate"]         = "Every recorded battle has been sent.",
     -- Printed after a recorded match, while no upload has ever been seen.
     ["MatchNeedsReload"]       = "Type /reload (or log out) so WoW writes this match to disk — until then the Uploader can't see it.",
     ["PremadeCopyTip"]         = "Click «Copy premade alert» (or /piq copy) to copy this for chat",
@@ -111,10 +120,17 @@ local en = {
         .. "leaderboard and deserters. Free.\n\n"
         .. "Optional: the King of EBG tier on Patreon adds deeper dashboard tools.\n"
         .. "Use /piq uploader to see the link again.",
-    ["UploaderURL"]    = "Uploader download:\nhttps://premadeiq.duckdns.org/install",
+    -- /go, not /install, and that is deliberate: this short path is
+    -- printed by the addon and by nothing else, so a hit on it means
+    -- "came from in-game". WoW has no clickable links — chat text
+    -- cannot even be selected — so the marker has to survive being
+    -- retyped by hand, which a ?from= parameter would not. The server
+    -- redirects it to /install. Do NOT "fix" it back, and do not put
+    -- /go in any other channel: exclusivity is the whole signal.
+    ["UploaderURL"]    = "Uploader download:\nhttps://premadeiq.duckdns.org/go",
     -- Bare address for the copy box: the line above carries a caption and a
     -- newline, which an edit box would show verbatim.
-    ["UploaderURLBare"] = "https://premadeiq.duckdns.org/install",
+    ["UploaderURLBare"] = "https://premadeiq.duckdns.org/go",
     -- Title of the copy box. Deliberately English everywhere, like the rest
     -- of the copy-out flow (see INTENTIONALLY_EN).
     ["UploaderCopyTitle"] = "Ctrl+C to copy, then open it in your browser:",
@@ -166,6 +182,11 @@ local ruRU = {
     ["PremadeCatalogMissing"]  = "каталог премейдов пуст — предупреждениям пока не с чем сверяться. Каталог приходит вместе с Uploader: %s",
     ["CatalogHintNoUploader"]  = "Предупреждения о премейдах молчат: список известных премейдов приходит с Uploader — %s",
     ["CatalogHintStale"]       = "Предупреждения о премейдах молчат: доступ протух. Выгрузи один доигранный эпический бой, и он откроется снова.",
+    ["UploadSilent"]           = "Не отправлено боёв: %d. Uploader не запускался %d дн.",
+    ["UploadSilentSoon"]       = "Доступ к каталогу держится на выгрузке раз в %d дн. — осталось примерно %d.",
+    ["UploadSilentLapsed"]     = "Доступ к каталогу, скорее всего, протух: нужна выгрузка раз в %d дн. Запусти Uploader, и он откроется снова.",
+    ["UploadPending"]          = "Ждут отправки: %d боёв (Uploader последний раз писал %d дн. назад).",
+    ["UploadUpToDate"]         = "Все записанные бои отправлены.",
     ["MatchNeedsReload"]       = "Набери /reload (или выйди из игры) — только тогда WoW запишет этот бой на диск, до этого Uploader его не увидит.",
     -- Copy-flow strings are intentionally English even on a ruRU client: the
     -- premade call-out is pasted into the English-facing community (/rw, Discord).
@@ -228,7 +249,7 @@ local ruRU = {
         .. "предупреждения о премейдах, полный лидерборд, дезертиры. Бесплатно.\n\n"
         .. "По желанию: тир King of EBG на Patreon добавляет разбор на сайте.\n"
         .. "Команда /piq uploader покажет ссылку ещё раз.",
-    ["UploaderURL"]    = "Скачать Uploader:\nhttps://premadeiq.duckdns.org/install",
+    ["UploaderURL"]    = "Скачать Uploader:\nhttps://premadeiq.duckdns.org/go",
     ["DiscordURL"]     = "Discord: https://discord.gg/KGPKRWt4MG",
 
     ["Got it"]         = "Понятно",
@@ -281,7 +302,7 @@ local deDE = {
         .. "Premade-Hinweise, das volle Leaderboard, Deserteure. Kostenlos.\n\n"
         .. "Optional: Die Patreon-Stufe King of EBG bringt tiefere Auswertungen.\n"
         .. "Mit /piq uploader siehst du den Link erneut.",
-    ["UploaderURL"]    = "Uploader herunterladen:\nhttps://premadeiq.duckdns.org/install",
+    ["UploaderURL"]    = "Uploader herunterladen:\nhttps://premadeiq.duckdns.org/go",
     ["DiscordURL"]     = "Discord: https://discord.gg/KGPKRWt4MG",
 
     ["Got it"]         = "Verstanden",
@@ -320,6 +341,11 @@ local deDE = {
     ["PremadeCatalogMissing"]      = "Premade-Katalog ist leer — die Hinweise haben noch nichts zum Abgleichen. Er kommt mit dem Uploader: %s",
     ["CatalogHintNoUploader"]      = "Premade-Hinweise bleiben stumm: Die Liste bekannter Premades kommt mit dem Uploader — %s",
     ["CatalogHintStale"]           = "Premade-Hinweise bleiben stumm: Dein Zugang ist abgelaufen. Lade ein zu Ende gespieltes episches BG hoch, dann geht er wieder auf.",
+    ["UploadSilent"]               = "%d Schlachten wurden nicht gesendet — der Uploader lief seit %d Tagen nicht.",
+    ["UploadSilentSoon"]           = "Der Katalogzugang braucht alle %d Tage einen Upload — noch etwa %d.",
+    ["UploadSilentLapsed"]         = "Der Katalogzugang ist wahrscheinlich abgelaufen: er braucht alle %d Tage einen Upload. Starte den Uploader, dann geht er wieder auf.",
+    ["UploadPending"]              = "Warten auf Versand: %d Schlachten (der Uploader schrieb zuletzt vor %d Tagen).",
+    ["UploadUpToDate"]             = "Alle aufgezeichneten Schlachten wurden gesendet.",
     ["MatchNeedsReload"]           = "Gib /reload ein (oder logge dich aus) — erst dann schreibt WoW dieses Match auf die Festplatte, vorher sieht der Uploader es nicht.",
     ["PremadeLeaders"]             = "Premade-Anführer",
     ["PremadeMembers"]             = "Premade-Mitglieder",
@@ -358,7 +384,7 @@ local frFR = {
         .. "classement complet, déserteurs. Gratuit.\n\n"
         .. "Facultatif : le palier King of EBG sur Patreon ajoute des analyses.\n"
         .. "La commande /piq uploader réaffiche le lien.",
-    ["UploaderURL"]    = "Télécharger l'Uploader :\nhttps://premadeiq.duckdns.org/install",
+    ["UploaderURL"]    = "Télécharger l'Uploader :\nhttps://premadeiq.duckdns.org/go",
     ["DiscordURL"]     = "Discord : https://discord.gg/KGPKRWt4MG",
 
     ["Got it"]         = "Compris",
@@ -397,6 +423,11 @@ local frFR = {
     ["PremadeCatalogMissing"]      = "le catalogue premade est vide — les alertes n'ont rien à comparer. Il arrive avec l'Uploader : %s",
     ["CatalogHintNoUploader"]      = "Les alertes premade sont muettes : la liste des premades connus vient avec l'Uploader — %s",
     ["CatalogHintStale"]           = "Les alertes premade sont muettes : votre accès a expiré. Envoyez un BG épique terminé pour le rouvrir.",
+    ["UploadSilent"]               = "%d batailles n'ont pas été envoyées — l'Uploader n'a pas tourné depuis %d jours.",
+    ["UploadSilentSoon"]           = "L'accès au catalogue demande un envoi tous les %d jours — il en reste environ %d.",
+    ["UploadSilentLapsed"]         = "L'accès au catalogue a probablement expiré : il demande un envoi tous les %d jours. Lancez l'Uploader pour le rouvrir.",
+    ["UploadPending"]              = "En attente d'envoi : %d batailles (l'Uploader a écrit il y a %d jours).",
+    ["UploadUpToDate"]             = "Toutes les batailles enregistrées ont été envoyées.",
     ["MatchNeedsReload"]           = "Tapez /reload (ou déconnectez-vous) : c'est seulement là que WoW écrit ce match sur le disque, avant cela l'Uploader ne le voit pas.",
     ["PremadeLeaders"]             = "Chefs de premade",
     ["PremadeMembers"]             = "Membres de premade",
@@ -435,7 +466,7 @@ local esES = {
         .. "clasificación completa, desertores. Gratis.\n\n"
         .. "Opcional: el nivel King of EBG en Patreon añade más análisis.\n"
         .. "El comando /piq uploader vuelve a mostrar el enlace.",
-    ["UploaderURL"]    = "Descargar Uploader:\nhttps://premadeiq.duckdns.org/install",
+    ["UploaderURL"]    = "Descargar Uploader:\nhttps://premadeiq.duckdns.org/go",
     ["DiscordURL"]     = "Discord: https://discord.gg/KGPKRWt4MG",
 
     ["Got it"]         = "Entendido",
@@ -474,6 +505,11 @@ local esES = {
     ["PremadeCatalogMissing"]      = "el catálogo de premades está vacío — los avisos no tienen con qué comparar. Llega con el Uploader: %s",
     ["CatalogHintNoUploader"]      = "Los avisos de premade están en silencio: la lista de premades conocidos llega con el Uploader — %s",
     ["CatalogHintStale"]           = "Los avisos de premade están en silencio: tu acceso caducó. Sube un BG épico terminado y se abre otra vez.",
+    ["UploadSilent"]               = "%d batallas no se han enviado: el Uploader no se ejecuta desde hace %d días.",
+    ["UploadSilentSoon"]           = "El acceso al catálogo necesita una subida cada %d días: quedan unos %d.",
+    ["UploadSilentLapsed"]         = "El acceso al catálogo probablemente caducó: necesita una subida cada %d días. Abre el Uploader y se reabre.",
+    ["UploadPending"]              = "Pendientes de envío: %d batallas (el Uploader escribió hace %d días).",
+    ["UploadUpToDate"]             = "Todas las batallas registradas se han enviado.",
     ["MatchNeedsReload"]           = "Escribe /reload (o cierra sesión): solo entonces WoW escribe este partido en el disco, antes el Uploader no lo ve.",
     ["PremadeLeaders"]             = "Líderes de premade",
     ["PremadeMembers"]             = "Miembros de premade",
@@ -537,12 +573,17 @@ local itIT = {
     ["PremadeCatalogMissing"]      = "il catalogo premade è vuoto — gli avvisi non hanno ancora nulla con cui confrontare. Arriva con l'Uploader: %s",
     ["CatalogHintNoUploader"]      = "Gli avvisi premade restano muti: l'elenco dei premade noti arriva con l'Uploader — %s",
     ["CatalogHintStale"]           = "Gli avvisi premade restano muti: il tuo accesso è scaduto. Carica un BG epico portato a termine e si riapre.",
+    ["UploadSilent"]               = "%d battaglie non sono state inviate — l'Uploader non parte da %d giorni.",
+    ["UploadSilentSoon"]           = "L'accesso al catalogo richiede un invio ogni %d giorni — ne restano circa %d.",
+    ["UploadSilentLapsed"]         = "L'accesso al catalogo è probabilmente scaduto: richiede un invio ogni %d giorni. Avvia l'Uploader e si riapre.",
+    ["UploadPending"]              = "In attesa di invio: %d battaglie (l'Uploader ha scritto %d giorni fa).",
+    ["UploadUpToDate"]             = "Tutte le battaglie registrate sono state inviate.",
     ["MatchNeedsReload"]           = "Digita /reload (o esci dal gioco): solo allora WoW scrive questa partita su disco, prima l'Uploader non la vede.",
     ["PremadeLeaders"]             = "Capi premade",
     ["PremadeMembers"]             = "Membri premade",
     ["PremadeNone"]                = "Nessun capo premade noto in questa partita",
     ["Samples"]                    = "righe",
-    ["UploaderURL"]                = "Download dell'Uploader:\nhttps://premadeiq.duckdns.org/install",
+    ["UploaderURL"]                = "Download dell'Uploader:\nhttps://premadeiq.duckdns.org/go",
     ["WelcomeBody"]                = "PremadeIQ registra le statistiche dei BG epici nei tuoi SavedVariables.\n\nGli avvisi sui premade restano muti finché non ti colleghi: l'elenco dei premade noti è un dato della comunità e arriva con l'Uploader.\n\n  1. Installa PremadeIQ Uploader (basta un account Discord — non devi entrare da nessuna parte)\n  2. Gioca un BG epico e lascialo caricare\n\nUn BG epico portato a termine a settimana tiene tutto aperto: avvisi sui premade, classifica completa, disertori. Gratis.\n\nFacoltativo: il livello King of EBG su Patreon aggiunge analisi più approfondite.\nUsa /piq uploader per rivedere il link.",
     ["WelcomeTitle"]               = "PremadeIQ installato!",
     ["CmdHelp"]                    = "|cff33ff99PremadeIQ|r comandi:\n  /piq status           — mostra la dimensione del database\n  /piq uploader         — mostra il link di download dell'Uploader\n  /piq snapshot         — forza l'acquisizione (in campo di battaglia)\n  /piq premade          — controlla i premade noti nella squadra avversaria\n  /piq copy             — copia l'ultimo avviso premade per la chat\n  /piq debug on|off     — attiva o disattiva il debug\n  /piq reset confirm    — cancella il database\n  /piq version          — mostra la versione",

@@ -109,6 +109,45 @@ local function maybeCatalogHint()
     if ns.Database then ns.Database:SetSetting("catalogHintAt", time()) end
 end
 
+-- The Uploader is a separate app that has to be running, and it fails
+-- silently: the addon keeps recording, nothing leaves the machine, and the
+-- player finds out when their catalog access lapses on the seventh day.
+-- maybeCatalogHint cannot cover this — it returns early once the catalog is
+-- populated, which is exactly the state these players are in. Two of the
+-- three people uploading in August went quiet this way, and neither the
+-- addon nor the site said a word.
+local UPLOAD_SILENT_MIN_DAYS = 3                       -- below this it is just a pause
+local UPLOAD_HINT_EVERY_SEC  = 3 * 24 * 60 * 60
+local CONTRIB_WINDOW_DAYS    = 7                       -- server: tiers.CONTRIBUTOR_WINDOW_DAYS
+
+local function maybeUploadHint()
+    if ns.Database and ns.Database:GetSetting("premadeAlert") == false then return end
+    if not ns.Database or not ns.Database.UploadBacklog then return end
+
+    local backlog = ns.Database:UploadBacklog()
+    if not backlog then return end                     -- never ran it; other hint covers that
+    if (backlog.pending or 0) <= 0 then return end     -- nothing waiting to go
+
+    local silent = backlog.silentDays
+    if not silent or silent < UPLOAD_SILENT_MIN_DAYS then return end
+
+    local last = tonumber(ns.Database:GetSetting("uploadHintAt")) or 0
+    if time() - last < UPLOAD_HINT_EVERY_SEC then return end
+
+    prnt("|cffffd100" .. (L["UploadSilent"]):format(backlog.pending, silent) .. "|r")
+    -- The access line is the part the player actually cares about, so it is
+    -- phrased from what we can prove: how long the Uploader has been quiet.
+    -- The server counts from the last accepted batch, which we cannot see
+    -- from in here — hence "about" rather than a countdown to a date.
+    if silent >= CONTRIB_WINDOW_DAYS then
+        prnt("|cff888888" .. (L["UploadSilentLapsed"]):format(CONTRIB_WINDOW_DAYS) .. "|r")
+    else
+        prnt("|cff888888" .. (L["UploadSilentSoon"]):format(
+            CONTRIB_WINDOW_DAYS, CONTRIB_WINDOW_DAYS - silent) .. "|r")
+    end
+    ns.Database:SetSetting("uploadHintAt", time())
+end
+
 f:SetScript("OnEvent", function(self, event, arg1, ...)
     if event == "ADDON_LOADED" and arg1 == ADDON then
         ns.Database:Init()
@@ -154,6 +193,7 @@ f:SetScript("OnEvent", function(self, event, arg1, ...)
                 if ns.Deserter then ns.Deserter:OnMatchActive() end
                 if ns.PremadeAlert then ns.PremadeAlert:OnMatchActive() end
                 maybeCatalogHint()
+                maybeUploadHint()
             end
         else
             -- Left the BG (clean end, kick, or disconnect). Reset the start-
@@ -190,6 +230,7 @@ f:SetScript("OnEvent", function(self, event, arg1, ...)
             if ns.Deserter then ns.Deserter:OnMatchActive() end
             if ns.PremadeAlert then ns.PremadeAlert:OnMatchActive() end
             maybeCatalogHint()
+            maybeUploadHint()
         end
 
     elseif event == "UPDATE_BATTLEFIELD_SCORE" then
@@ -272,6 +313,18 @@ local function cmdStatus()
             prnt((L["PremadeCatalogLoaded"]):format(n, tier or "?"))
         else
             prnt((L["PremadeCatalogMissing"]):format(L["UploaderURLBare"]))
+        end
+    end
+    -- Upload state on demand, for the same reason as the catalog line above:
+    -- the passive hint only fires after days of silence and inside an Epic
+    -- BG, which makes it impossible to check deliberately. Here it answers
+    -- straight away, including the healthy case.
+    local backlog = ns.Database.UploadBacklog and ns.Database:UploadBacklog()
+    if backlog then
+        if (backlog.pending or 0) > 0 then
+            prnt((L["UploadPending"]):format(backlog.pending, backlog.silentDays or 0))
+        else
+            prnt(L["UploadUpToDate"])
         end
     end
 end

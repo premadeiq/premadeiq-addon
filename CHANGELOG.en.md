@@ -2,6 +2,31 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.43] — 2026-08-26
+
+### Added
+- **The addon now notices when your battles stop leaving your machine.** The
+  Uploader is a separate program and it fails quietly: the addon keeps
+  recording, nothing goes out, and you find out when your access to the premade
+  catalog lapses. The previous hint could not help here — it only spoke to
+  players whose catalog was empty, which is precisely the wrong audience. On
+  entering an Epic BG the addon now counts the battles logged since the last
+  upload, and if the Uploader has not run for three days or more, it says so.
+  At most once every three days, and it switches off with the premade warnings.
+- **And it says what that costs you.** Catalog access needs one upload every
+  seven days. Under a week of silence, the addon tells you roughly how long is
+  left; over it, that access has most likely lapsed and how to reopen it. Until
+  now you found out afterwards and without an explanation.
+- **`/piq` reports the upload state** — how many battles are waiting and when
+  the Uploader last ran. The passive hint only appears after days of silence
+  and only inside a battleground, so there was no way to check it on purpose.
+  This line answers immediately, including when everything is fine.
+
+### Changed
+- **The install address is shorter** — https://premadeiq.duckdns.org/go. WoW has no
+  clickable links and chat text cannot even be selected, so the address gets
+  retyped by hand. A shorter one is less to type, and it leads to the same page.
+
 ## [0.9.42] — 2026-08-16
 
 ### Fixed

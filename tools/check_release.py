@@ -108,11 +108,17 @@ TEXT_SUFFIXES = (".lua", ".md", ".toc", ".xml", ".txt", ".yml", ".yaml")
 # `/piq uploader` answered every player with a 404 — the addon has to be able
 # to say where the companion app lives.
 #
-# Deliberately narrow: the full scheme plus the /install path, with whatever
-# trailing anchor or query the page needs. The host on its own, any other
-# path, and a scheme-less mention all still fail — the exception exists to
-# ship one working link to players, not to unlock the hostname.
-ALLOWED_URL_RE = re.compile(r"https://premadeiq\.duckdns\.org/install[^\s\"'<>)]*")
+# Deliberately narrow: the full scheme plus one of two exact paths, with
+# whatever trailing anchor or query the page needs. /install is where the
+# companion app lives; /go is the short path the addon prints so an arrival
+# can be attributed to the game. The lookahead keeps the carve-out to those
+# two words — /installer or /goodies would still read as a leak.
+# The host on its own, any other path, and a scheme-less mention all still
+# fail — the exception exists to ship working links to players, not to
+# unlock the hostname.
+ALLOWED_URL_RE = re.compile(
+    r"https://premadeiq\.duckdns\.org/(?:install|go)"
+    r"(?![A-Za-z0-9_-])[^\s\"'<>)]*")
 
 
 def _is_text(name: str) -> bool:

@@ -21,7 +21,11 @@ local ADDON, ns = ...
 --   privacy = { firstSeenAt, welcomeSeen },
 --   -- catalogHintAt: unix time of the last "your premade list is empty" line
 --   -- printed on entering an Epic BG. Throttles it to once a week (Main.lua).
---   settings = { debug=false, language="auto", premadeAlert=true, catalogHintAt=0 },
+--   -- uploadHintAt: unix time of the last "your battles are not leaving this
+--   -- machine" line. Separate key from catalogHintAt because the two hints
+--   -- answer different questions and must not throttle each other.
+--   settings = { debug=false, language="auto", premadeAlert=true,
+--                catalogHintAt=0, uploadHintAt=0 },
 --   -- Live match context parked so it survives a /reload (Collector.lua).
 --   -- Written on PVP_MATCH_ACTIVE for EBGs, read back on the next
 --   -- PLAYER_ENTERING_WORLD, dropped when the match really ends. Absent
@@ -333,6 +337,53 @@ local function trustedCursor(db)
     if c > time() + 86400 then c = prev end         -- implausible future → ignore
     return c
 end
+
+-- How far behind the Uploader has fallen, for the hint in Main.lua.
+--
+-- Returns { pending, silentDays } or nil. Two different silences look alike
+-- from inside the game and are told apart here:
+--
+--   nil          — no watermark for this install: the Uploader has never run.
+--                  A different hint already covers that case; saying both
+--                  would be noise.
+--   pending = 0  — it ran and took everything. Nothing to say.
+--   pending > 0  — matches are logged past the cursor. `silentDays` is how
+--                  long since the Uploader last wrote at all, which is the
+--                  number that matters: the addon keeps recording either way,
+--                  so a stopped Uploader is otherwise completely invisible.
+--
+-- Counts the log, not the samples table: matchLog is capped (MAX_MATCH_LOG),
+-- so "12 battles waiting" can understate a very long silence. Understating is
+-- the right direction — the number is there to prompt, not to audit.
+function Database:UploadBacklog()
+    local db = self.db
+    if not db then return nil end
+    local us = PremadeIQ_UploadState
+    if type(us) ~= "table" or type(us.cursors) ~= "table" then return nil end
+    if not db.installId then return nil end
+    local entry = us.cursors[db.installId]
+    if type(entry) ~= "table" then return nil end
+
+    local cursor  = tonumber(entry.samplesUploadedThrough) or 0
+    local pending = 0
+    for _, m in ipairs(db.matchLog or {}) do
+        local endedAt = tonumber(m.endedAt)
+        if endedAt and endedAt > cursor then pending = pending + 1 end
+    end
+
+    local silentDays
+    local writtenAt = tonumber(entry.writtenAt)
+    if writtenAt then
+        -- Clamp at zero: a watermark stamped in the future (clock skew, or a
+        -- file copied between machines) must not read as negative days.
+        local elapsed = time() - writtenAt
+        if elapsed < 0 then elapsed = 0 end
+        silentDays = math.floor(elapsed / 86400)
+    end
+
+    return { pending = pending, silentDays = silentDays, cursor = cursor }
+end
+
 
 -- One sweep per session, fired from PLAYER_ENTERING_WORLD once UnitGUID("player")
 -- is available (nil on ADDON_LOADED). Generates the installId, runs the precise
