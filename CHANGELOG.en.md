@@ -23,7 +23,7 @@ All notable changes are documented here. Format — [Keep a Changelog](https://k
   This line answers immediately, including when everything is fine.
 
 ### Changed
-- **The install address is shorter** — https://premadeiq.duckdns.org/go. WoW has no
+- **The install address is shorter.** WoW has no
   clickable links and chat text cannot even be selected, so the address gets
   retyped by hand. A shorter one is less to type, and it leads to the same page.
 
