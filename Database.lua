@@ -385,6 +385,40 @@ function Database:UploadBacklog()
 end
 
 
+-- How old is the premade catalog the addon is currently working from?
+--
+-- The mirror image of UploadBacklog: that one answers "are my battles leaving
+-- the machine", this one answers "is what I know about premades still true".
+-- Both failures look identical from inside the game — the addon behaves
+-- perfectly and simply knows less than it should — and this one is worse,
+-- because a stale catalog reads as good news: no warning on entering a BG
+-- looks exactly like "no premade here today".
+--
+-- `generated_at` is stamped by the SERVER when it built the catalog, so it
+-- measures the data, not the file: an Uploader that keeps rewriting an
+-- unchanged catalog cannot make it look fresh.
+function Database:CatalogFreshness()
+    local cat = PremadeIQ_KnownPremades
+    if type(cat) ~= "table" then return nil end
+    local leaders = type(cat.leaders) == "table" and #cat.leaders or 0
+    local generatedAt = tonumber(cat.generated_at)
+    if not generatedAt or generatedAt <= 0 then
+        -- A catalog with leaders but no timestamp predates rev 1; treat the age
+        -- as unknown rather than as zero, or a very old file reads as brand new.
+        return { leaders = leaders, ageDays = nil, generatedAt = nil }
+    end
+    -- Clamp at zero for the same reason UploadBacklog does: a server clock
+    -- ahead of the client's must not render as a negative age.
+    local elapsed = time() - generatedAt
+    if elapsed < 0 then elapsed = 0 end
+    return {
+        leaders = leaders,
+        ageDays = math.floor(elapsed / 86400),
+        generatedAt = generatedAt,
+    }
+end
+
+
 -- One sweep per session, fired from PLAYER_ENTERING_WORLD once UnitGUID("player")
 -- is available (nil on ADDON_LOADED). Generates the installId, runs the precise
 -- upload-cursor prune when we have a trusted cursor (else the age heuristic), and

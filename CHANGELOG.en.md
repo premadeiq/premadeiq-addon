@@ -2,6 +2,31 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.44] — 2026-09-04
+
+### Added
+- **The addon now warns when your premade list has gone stale.** The list comes
+  from the Uploader, and if that has not run for a while the addon keeps working
+  quietly — on data from two weeks ago. The worst part is how it looks: silence
+  on entering a battleground reads as "no premade here", when it actually means
+  "we do not know". Entering an Epic BG with a list older than two weeks now
+  says so plainly: how many days old it is and what to do about it. At most once
+  a week, switched off in the same place as premade warnings.
+- **`/piq status` shows the age of the list.** The passive hint only fires
+  inside a battleground and only after two weeks of silence, so there was no way
+  to check on purpose. This line answers immediately — including when everything
+  is fresh.
+- **A third confidence level in the targets panel: "possible premade member".**
+  Until now a player was either a premade member or nobody, with nothing in
+  between — so a single game could drop someone off the panel and the next one
+  put them back, though they had changed nothing. A player we have shared
+  history for, just not enough of it to say so with confidence, now shows with a
+  `?` mark and the caption "Possible premade member", and the tooltip names
+  whose premade they were seen beside. The mark is deliberately unlike `*`
+  (leader) and `~` (takes raid lead, runs no premade): it is a question, not a
+  statement. Such players ride in their own list and never join the confirmed
+  roster — not in the panel, not in announcements.
+
 ## [0.9.43] — 2026-08-26
 
 ### Added

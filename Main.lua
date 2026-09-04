@@ -109,6 +109,31 @@ local function maybeCatalogHint()
     if ns.Database then ns.Database:SetSetting("catalogHintAt", time()) end
 end
 
+-- A catalog that stopped being refreshed is the quietest failure of all: the
+-- addon keeps working, says nothing on entering a BG, and "nothing said" reads
+-- as "no premade today" — when in fact we are matching today's scoreboard
+-- against a list from weeks ago. maybeCatalogHint cannot see this: it returns
+-- early the moment the catalog has leaders in it, which is exactly this state.
+local CATALOG_STALE_MIN_DAYS   = 14      -- below this, normal Uploader cadence
+local CATALOG_STALE_EVERY_SEC  = 7 * 24 * 60 * 60
+
+local function maybeStaleCatalogHint()
+    if ns.Database and ns.Database:GetSetting("premadeAlert") == false then return end
+    if not ns.Database or not ns.Database.CatalogFreshness then return end
+
+    local fresh = ns.Database:CatalogFreshness()
+    if not fresh then return end
+    if (fresh.leaders or 0) <= 0 then return end        -- empty → other hint
+    if not fresh.ageDays or fresh.ageDays < CATALOG_STALE_MIN_DAYS then return end
+
+    local last = tonumber(ns.Database:GetSetting("staleCatalogHintAt")) or 0
+    if time() - last < CATALOG_STALE_EVERY_SEC then return end
+
+    prnt("|cffffd100" .. (L["CatalogOutdated"]):format(fresh.ageDays) .. "|r")
+    prnt("|cff888888" .. L["CatalogOutdatedFix"] .. "|r")
+    ns.Database:SetSetting("staleCatalogHintAt", time())
+end
+
 -- The Uploader is a separate app that has to be running, and it fails
 -- silently: the addon keeps recording, nothing leaves the machine, and the
 -- player finds out when their catalog access lapses on the seventh day.
@@ -193,6 +218,7 @@ f:SetScript("OnEvent", function(self, event, arg1, ...)
                 if ns.Deserter then ns.Deserter:OnMatchActive() end
                 if ns.PremadeAlert then ns.PremadeAlert:OnMatchActive() end
                 maybeCatalogHint()
+                maybeStaleCatalogHint()
                 maybeUploadHint()
             end
         else
@@ -230,6 +256,7 @@ f:SetScript("OnEvent", function(self, event, arg1, ...)
             if ns.Deserter then ns.Deserter:OnMatchActive() end
             if ns.PremadeAlert then ns.PremadeAlert:OnMatchActive() end
             maybeCatalogHint()
+            maybeStaleCatalogHint()
             maybeUploadHint()
         end
 
@@ -311,6 +338,15 @@ local function cmdStatus()
         local n, tier = ns.PremadeAlert:CatalogInfo()
         if n and n > 0 then
             prnt((L["PremadeCatalogLoaded"]):format(n, tier or "?"))
+            -- How OLD that list is, for the same reason the count is here: the
+            -- passive warning fires only inside an Epic BG and only after two
+            -- weeks, so there is otherwise no way to check on purpose. Age is
+            -- shown always, healthy or not — the answer "0 days" is the one
+            -- most people are looking for.
+            local fresh = ns.Database.CatalogFreshness and ns.Database:CatalogFreshness()
+            if fresh and fresh.ageDays then
+                prnt((L["PremadeCatalogAge"]):format(fresh.ageDays))
+            end
         else
             prnt((L["PremadeCatalogMissing"]):format(L["UploaderURLBare"]))
         end

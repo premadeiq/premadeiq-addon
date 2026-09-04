@@ -133,6 +133,16 @@ local function addGroup(entry, groupId, label)
     entry.groups[#entry.groups + 1] = label
 end
 
+-- The "likely" tier (catalog rev 7): real shared history that has not reached
+-- the server's confirmation bar. Kept in its OWN list on purpose — the UI reads
+-- `#groups > 0` as "this is a premade member", and a maybe must never answer
+-- that question yes.
+local function addLikelyGroup(entry, groupId, label)
+    if groupId == nil or not validName(label) or entry._likelySet[groupId] then return end
+    entry._likelySet[groupId] = true
+    entry.likelyGroups[#entry.likelyGroups + 1] = label
+end
+
 function Core.BuildCatalogIndex(catalog, realm)
     local index = {}
     -- Only the catalog itself is required. `leaders` used to be mandatory here,
@@ -150,8 +160,11 @@ function Core.BuildCatalogIndex(catalog, realm)
             entry = {
                 catalogName = name,
                 isLeader = false,
+                isLikely = false,
                 groups = {},
+                likelyGroups = {},
                 _groupSet = {},
+                _likelySet = {},
             }
             index[key] = entry
         end
@@ -171,12 +184,23 @@ function Core.BuildCatalogIndex(catalog, realm)
         end
     end
 
-    local function addMembers(members, groupId, groupLabel)
+    local function addMembers(members, groupId, groupLabel, likely)
         if type(members) ~= "table" then return end
         for _, member in ipairs(members) do
             if type(member) == "table" then
                 local entry = getEntry(member.name)
-                if entry then addGroup(entry, groupId, groupLabel) end
+                if entry then
+                    if likely then
+                        -- A confirmed pair is never also likely (the server
+                        -- resolves that), but an alt seen under two leaders can
+                        -- be: confirmed wins and the maybe stays silent.
+                        if #entry.groups == 0 then entry.isLikely = true end
+                        addLikelyGroup(entry, groupId, groupLabel)
+                    else
+                        entry.isLikely = false
+                        addGroup(entry, groupId, groupLabel)
+                    end
+                end
             end
         end
     end
@@ -191,6 +215,7 @@ function Core.BuildCatalogIndex(catalog, realm)
                 addGroup(entry, groupId, groupLabel)
             end
             addMembers(leader.confirmed_members, groupId, groupLabel)
+            addMembers(leader.likely_members, groupId, groupLabel, true)
         end
     end
     end
@@ -265,6 +290,12 @@ function Core.FilterRoster(rows, catalogIndex, mySide, realm, myCanonicalName,
                     side = (row.faction == mySide) and "ally" or "enemy",
                     isLeader = (catalogEntry and catalogEntry.isLeader) and true or false,
                     groups = catalogEntry and catalogEntry.groups or nil,
+                    -- One tier below a confirmed member: shared history that
+                    -- has not cleared the bar. Separate field AND separate
+                    -- group list, so no existing "is this a premade member"
+                    -- check answers yes for a maybe.
+                    isLikely = (catalogEntry and catalogEntry.isLikely) and true or false,
+                    likelyGroups = catalogEntry and catalogEntry.likelyGroups or nil,
                     isWatched = watched,
                     -- Marked "takes raid lead, runs no premade". Independent of
                     -- the premade fields above and never a substitute for them:
@@ -332,6 +363,7 @@ function Core.PlayerSignature(players)
         parts[i] = tostring(player.name or "") .. "\30" .. tostring(player.side or "")
                    .. "\30" .. (player.isWatched and "w" or "")
                    .. "\30" .. (player.isRaidLead and "r" or "")
+                   .. "\30" .. (player.isLikely and "l" or "")
     end
     return table.concat(parts, "\31")
 end

@@ -118,6 +118,10 @@ local WATCH_MARK  = "> "
 -- Marked "takes raid lead, runs no premade". Neutral on purpose — a plain fact,
 -- not an accusation, and visibly not the premade star.
 local RAID_LEAD_MARK = "~ "
+-- One tier below a confirmed member (catalog rev 7): the server has shared
+-- history for them, just not enough of it. A question mark, because that is
+-- exactly the claim — we are asking, not telling.
+local LIKELY_MARK = "? "
 
 local function labelText(player)
     -- One mark, strongest claim first. A raid leader who is ALSO a known premade
@@ -126,6 +130,9 @@ local function labelText(player)
     local inPremade = player.groups and #player.groups > 0
     local mark = (player.isLeader and LEADER_MARK)
               or (player.isRaidLead and not inPremade and RAID_LEAD_MARK)
+              -- Below a confirmed member and below an owner-made raid-lead
+              -- mark: both of those are things we know, this one is a maybe.
+              or (player.isLikely and not inPremade and LIKELY_MARK)
               or (player.isWatched and not player.inCatalog and WATCH_MARK)
               or ""
     return mark .. displayName(player.name)
@@ -255,6 +262,8 @@ local function showTooltip(button)
         caption = L["PremadeTargetMember"]
     elseif player.isRaidLead then
         caption = L["PremadeTargetRaidLead"]
+    elseif player.isLikely then
+        caption = L["PremadeTargetLikely"]
     else
         caption = L["PremadeTargetWatched"]
     end
@@ -273,6 +282,15 @@ local function showTooltip(button)
     end
     if player.groups and #player.groups > 0 then
         GameTooltip:AddLine(L["PremadeTargetGroups"] .. ": " .. table.concat(player.groups, ", "), 0.8, 0.8, 0.8, true)
+    end
+    -- Whose premade they MIGHT belong to. Separate line and separate wording
+    -- from the confirmed one above: reusing "Groups" would state as fact the
+    -- very thing this tier exists to hedge.
+    if player.likelyGroups and #player.likelyGroups > 0
+            and not (player.groups and #player.groups > 0) then
+        GameTooltip:AddLine(
+            L["PremadeTargetLikelyWith"] .. ": " .. table.concat(player.likelyGroups, ", "),
+            0.75, 0.75, 0.7, true)
     end
     GameTooltip:AddLine(L["PremadeTargetClick"], 0.5, 1, 0.5, true)
     GameTooltip:Show()
