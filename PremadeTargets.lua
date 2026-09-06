@@ -20,6 +20,10 @@ local Targets = {
     PANEL_PADDING = 7,
     HEADER_HEIGHT = 24,
     SECTION_HEADER_HEIGHT = 17,
+    -- Height reserved for the odds line under the header. Only added to
+    -- the layout when there IS a forecast, so a panel without one keeps
+    -- exactly its old geometry.
+    ODDS_HEIGHT = 16,
     SECTION_GAP = 6,
     MIN_SCALE = 0.70,
     MAX_SCALE = 1.50,
@@ -342,6 +346,19 @@ local function makeButton(index, parent)
     return button
 end
 
+-- One line for chat, carrying the same working as the tooltip. What the player
+-- pastes is then arguable by the people reading it, which a bare "44%" is not.
+--
+-- Declared ABOVE Initialize on purpose: a `local function` is invisible to
+-- anything defined earlier in the file, so the copy handler created inside
+-- Initialize would have captured a nil global instead (the same trap that
+-- once silently dropped the solo-raid-lead line in PremadeAlert).
+local function oddsCopyText(f)
+    return L["ForecastCopyFull"]:format(
+        f.us, f.them, math.floor(f.ourWr + 0.5), math.floor(f.theirWr + 0.5),
+        math.floor(f.ourNew + 0.5), math.floor(f.theirNew + 0.5), f.accuracy)
+end
+
 function Targets:Initialize()
     if self._panel then return true end
     if InCombatLockdown and InCombatLockdown() then
@@ -378,6 +395,51 @@ function Targets:Initialize()
     header:SetJustifyH("LEFT")
     header:SetTextColor(1, 0.82, 0.15)
     panel.header = header
+
+    -- Win chances for this match, under the header. On the panel itself and
+    -- NOT inside `body`: body is a secure frame, and this has to stay
+    -- writable during combat lockdown — which is most of a battleground.
+    local odds = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    odds:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -3)
+    odds:SetJustifyH("LEFT")
+    odds:Hide()
+    panel.odds = odds
+
+    -- Mouse target sitting exactly over that line: hover explains where the
+    -- number came from, click copies it for chat. A FontString cannot take
+    -- mouse input itself, hence the frame. It is a plain (non-secure) frame, so
+    -- both scripts stay legal in combat — which is when this is read.
+    local hit = CreateFrame("Frame", nil, panel)
+    hit:SetPoint("TOPLEFT", odds, "TOPLEFT", -2, 2)
+    hit:SetPoint("BOTTOMRIGHT", odds, "BOTTOMRIGHT", 2, -2)
+    hit:EnableMouse(true)
+    hit:SetScript("OnEnter", function(frame)
+        local f = self._forecast
+        if not f then return end
+        GameTooltip:SetOwner(frame, "ANCHOR_BOTTOMRIGHT")
+        GameTooltip:SetText(L["ForecastTipTitle"], 1, 0.82, 0.15)
+        GameTooltip:AddLine(L["ForecastTipSides"]:format(f.us, f.them), 1, 1, 1)
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine(L["ForecastTipWr"]:format(
+            math.floor(f.ourWr + 0.5), math.floor(f.theirWr + 0.5)), 0.8, 0.8, 0.8)
+        GameTooltip:AddLine(L["ForecastTipNew"]:format(
+            math.floor(f.ourNew + 0.5), math.floor(f.theirNew + 0.5)), 0.8, 0.8, 0.8)
+        GameTooltip:AddLine(L["ForecastTipKnown"]:format(
+            f.ourKnown, f.ourN, f.theirKnown, f.theirN), 0.8, 0.8, 0.8)
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine(L["ForecastTipAcc"]:format(f.accuracy), 0.6, 0.6, 0.6, true)
+        GameTooltip:AddLine(L["ForecastTipCopy"], 0.5, 0.75, 1)
+        GameTooltip:Show()
+    end)
+    hit:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    hit:SetScript("OnMouseUp", function()
+        local f = self._forecast
+        if f and ns.PremadeAlert then
+            ns.PremadeAlert:ShowCopyDialog(oddsCopyText(f))
+        end
+    end)
+    hit:Hide()
+    panel.oddsHit = hit
 
     self._panel = panel
 
@@ -668,6 +730,7 @@ function Targets:ApplyPlayers(players)
     local index = 0
     local widestColumns = 0
     local y = self.HEADER_HEIGHT + self.PANEL_PADDING
+    if self._forecast then y = y + self.ODDS_HEIGHT end
 
     for _, side in ipairs(SECTIONS) do
         local list = grouped[side]
@@ -762,6 +825,7 @@ function Targets:ApplyPlayers(players)
         self._panel:SetSize(width, y - self.SECTION_GAP + self.PANEL_PADDING)
     end
     self:RenderHeader()
+    self:RenderOdds()
     -- Never a bare Show(): the panel stays hidden while the user has it
     -- minimized, otherwise the next scoreboard tick would pop it back open.
     self:UpdateVisibility()
@@ -795,6 +859,53 @@ function Targets:RenderHeader()
         panel.header:SetText(text)
         panel.header:SetTextColor(1, 0.82, 0.15)
     end
+end
+
+-- Win chances for this match, under the header.
+--
+-- This panel is the right home for them: it is already on screen for the whole
+-- battleground and it does not fade, unlike the premade banner — which appears
+-- once, early, and often before the enemy half of the scoreboard has even
+-- loaded (so the forecast has nothing to say at that moment).
+--
+-- Like the header, a plain FontString on the non-secure panel, so SetText stays
+-- legal in combat lockdown.
+function Targets:RenderOdds()
+    local panel = self._panel
+    if not panel or not panel.odds then return end
+    local f = self._forecast
+    if not f then
+        panel.odds:Hide()
+        if panel.oddsHit then panel.oddsHit:Hide() end
+        return
+    end
+    panel.odds:SetText(L["ForecastPanel"]:format(
+        f.us, f.them,
+        math.floor(f.ourWr + 0.5), math.floor(f.theirWr + 0.5),
+        math.floor(f.ourNew + 0.5), math.floor(f.theirNew + 0.5)))
+    if f.us >= 50 then
+        panel.odds:SetTextColor(0.25, 0.88, 0.44)
+    else
+        panel.odds:SetTextColor(0.98, 0.48, 0.52)
+    end
+    panel.odds:Show()
+    if panel.oddsHit then panel.oddsHit:Show() end
+end
+
+-- Recompute from the rows this scan already read. Free: the scoreboard pass and
+-- its throttling are the panel's, and the forecast is arithmetic over names.
+--
+-- Claiming the "already delivered" slot keeps the standalone panel from saying
+-- the same thing twice — it exists for matches where this panel never appears.
+function Targets:UpdateForecast(rows, side)
+    if not ns.Forecast then return end
+    local before = self._forecast
+    self._forecast = ns.Forecast:ForMatch(rows, side)
+    if self._forecast then ns.Forecast:MarkShown() end
+    -- Appearing or disappearing changes the layout, so a scan that only moved
+    -- the odds still has to re-apply. ApplyPlayers is signature-guarded and
+    -- would otherwise skip it.
+    if (before == nil) ~= (self._forecast == nil) then self._signature = nil end
 end
 
 function Targets:SetHeaderStale(stale)
@@ -840,6 +951,9 @@ end
 function Targets:RefreshFromScoreboard(force, requestData)
     if not self:Initialize() then return false end
     if not (C_PvP and C_PvP.IsBattleground and C_PvP.IsBattleground()) then
+        -- Out of the battleground: drop the odds too, or the next match opens
+        -- showing the previous one's chances.
+        self._forecast = nil
         return self:ApplyPlayers({})
     end
 
@@ -877,6 +991,9 @@ function Targets:RefreshFromScoreboard(force, requestData)
     end
 
     local realm = GetNormalizedRealmName and GetNormalizedRealmName() or nil
+    -- Odds first: they need the raw rows, and they must be computed even when
+    -- the roster filter below finds nobody worth listing.
+    self:UpdateForecast(rows, currentSide())
     -- Built BEFORE the pcall, not inside its argument list. An argument is
     -- evaluated by the caller, so a throw in RebuildCatalog escaped the pcall
     -- entirely, skipped the `_scanning = false` below, and left the re-entry

@@ -273,6 +273,11 @@ local function detectImpl()
     local present, presentLeaders, seen, enemyReadable = {}, {}, {}, {}
     -- Marked solo raid leaders on the enemy side, deduped by display name.
     local raidLeads, raidLeadSeen = {}, {}
+    -- Name + side of every readable row on BOTH teams — the only input the
+    -- odds line needs (Forecast.lua looks each name up in the shipped winrate
+    -- cache). Collected in THIS pass because a second scoreboard scan costs
+    -- another SetBattlefieldScoreFaction, which the whole UI reprocesses.
+    local roster = {}
     for i = 1, n do
         local info = C_PvP.GetScoreInfo and C_PvP.GetScoreInfo(i)
         if info then
@@ -327,6 +332,17 @@ local function detectImpl()
                     end
                 end
             end
+
+            -- Every readable row, catalog hit or not: the forecast is about
+            -- both teams as a whole, not about known premades. `faction` is
+            -- NeverSecret in the API but guarded anyway — a row with no
+            -- readable side is skipped rather than guessed onto one.
+            if plainName then
+                roster[#roster + 1] = {
+                    name    = name,
+                    faction = (not secret(info.faction)) and info.faction or nil,
+                }
+            end
         end
     end
 
@@ -373,13 +389,22 @@ local function detectImpl()
         end
     end
 
-    if #out == 0 then return { leaders = {}, raidLeads = raidLeads } end
+    -- Odds line, computed from the SAME roster we just read: both teams'
+    -- winrates and how many of them the database has never seen. nil whenever
+    -- the scoreboard is still filling or too few players are known — the
+    -- display simply omits the line rather than guessing (see Forecast.lua).
+    local forecast = ns.Forecast and ns.Forecast:ForMatch(roster, mine) or nil
+
+    if #out == 0 then
+        return { leaders = {}, raidLeads = raidLeads, forecast = forecast }
+    end
     table.sort(out, function(a, b) return a.count > b.count end)
     diag.ldr = #out
     -- leaderlessOnly drives a distinct headline when NO marked leader is present
     -- at all (only the regulars gave the premade away).
     return { leaders = out, confirmed = confirmed,
-             leaderlessOnly = not anyPresent, raidLeads = raidLeads }
+             leaderlessOnly = not anyPresent, raidLeads = raidLeads,
+             forecast = forecast }
 end
 
 -- Re-entrancy guard around detectImpl. SetBattlefieldScoreFaction() inside it
@@ -436,12 +461,30 @@ local function raidLeadLine(res)
     return L["RaidLeadDetected"]:format(table.concat(names, ", "))
 end
 
+-- The odds line, or nil when the forecast had nothing honest to say (see
+-- Forecast.lua: missing cache, half-loaded scoreboard, too few known players).
+-- Two strings on purpose — the number, and what the number is worth. Showing
+-- the first without the second would present a 72%-accurate guess as a verdict.
+local function forecastLines(res)
+    local f = res and res.forecast
+    if not f then return nil end
+    return L["ForecastOdds"]:format(f.us, f.them),
+           L["ForecastNote"]:format(f.accuracy)
+end
+
 -- Broadcast-ready one-liner for the copy dialog — what the user pastes into
--- /rw or raid chat themselves. "Headline — Leader X: 8 — Leader Y: 2".
+-- /rw or raid chat themselves. "Headline — Leader X: 8 — Odds 62/38".
+--
+-- The odds go LAST: WoW cuts a chat line at 255 bytes, and if anything has to
+-- fall off the end it should be the forecast, not which premade is here.
 local function buildCopyText(res)
     local parts = { "[PremadeIQ] " .. headlineFor(res) }
     for _, ld in ipairs(res.leaders) do
         parts[#parts + 1] = leaderLineFor(ld)
+    end
+    local f = res and res.forecast
+    if f then
+        parts[#parts + 1] = L["ForecastCopy"]:format(f.us, f.them, f.accuracy)
     end
     return table.concat(parts, " — ")
 end
@@ -631,6 +674,15 @@ local function buildBannerBody(res)
     if (PremadeAlert._crownCount or 0) >= 2 then
         lines[#lines + 1] = "|cffffcc00" .. L["PremadeGroups"]:format(PremadeAlert._crownCount) .. "|r"
     end
+    -- Odds last: the premade verdict is the reason this banner exists, and the
+    -- forecast is context under it. Green when we are favoured, red when we are
+    -- not — with the accuracy caveat under it in grey, always.
+    local odds, note = forecastLines(res)
+    if odds then
+        local hex = (res.forecast.us >= 50) and "ff40e070" or "ffff7a85"
+        lines[#lines + 1] = "|c" .. hex .. odds .. "|r"
+        lines[#lines + 1] = "|cff888888" .. note .. "|r"
+    end
     return table.concat(lines, "\n")
 end
 
@@ -720,6 +772,15 @@ local function announceLines(res)
     end
     local rl = raidLeadLine(res)
     if rl then out[#out + 1] = { hex = "ffcc00", text = rl } end
+    -- Chat and banner say the same things, in the same order: the banner fades
+    -- after a few seconds and chat is where the player looks afterwards. The
+    -- split between the two is exactly what once dropped the solo-lead line.
+    local odds, note = forecastLines(res)
+    if odds then
+        out[#out + 1] = { hex = (res.forecast.us >= 50) and "40e070" or "ff7a85",
+                          text = odds }
+        out[#out + 1] = { hex = "888888", text = note }
+    end
     return out
 end
 -- Test seam: the announce decision is verified against this, not against the
@@ -765,6 +826,11 @@ function PremadeAlert:Announce(res)
     -- see the note above on why the Blizzard raid-warning frame was dropped.
     self:ShowBanner(res)
 
+    -- The banner carried the odds, so the panel must not repeat them. When
+    -- it did NOT (no forecast yet at this point in the match), nothing is
+    -- claimed and the panel delivers them on a later scan.
+    if res.forecast and ns.Forecast then ns.Forecast:MarkShown() end
+
     if not ns.Database or ns.Database:GetSetting("premadeSound") ~= false then
         PlaySound((SOUNDKIT and SOUNDKIT.RAID_WARNING) or 8959, "Master")
     end
@@ -784,7 +850,11 @@ end
 -- Auto path: respects the per-match guard, the user's toggle, and the scan
 -- throttle (UPDATE_BATTLEFIELD_SCORE fires far faster than we need to scan).
 local function autoScan()
-    if fired then return end
+    -- Two independent one-shots share this train: the premade announce
+    -- (`fired`) and the odds panel. Stopping on `fired` alone used to end
+    -- the match's scanning the instant a premade was recognised — which is
+    -- exactly when the forecast is least likely to have a full scoreboard.
+    if fired and (not ns.Forecast or ns.Forecast:Shown()) then return end
     if ns.Database and ns.Database:GetSetting("premadeAlert") == false then return end
     local now = GetTime()
     if now - lastScanAt < SCAN_THROTTLE_SEC then return end
@@ -792,6 +862,16 @@ local function autoScan()
     local res = detect()
     logDiag("scan")
     if not res then return end
+    -- The odds are NOT part of the one-shot premade announce, and must not
+    -- be. The banner fires the moment a premade is recognised — often
+    -- seconds in, while the enemy half of the scoreboard is still loading
+    -- and the forecast has nothing to say. If the odds rode on that single
+    -- shot they would be lost for the rest of the match. So they get their
+    -- own panel here, on whichever later scan first has enough data;
+    -- Announce marks them delivered when they DID make it onto the banner,
+    -- and the targets panel does the same, so nothing is said twice.
+    if ns.Forecast then ns.Forecast:AnnounceOnce(res.forecast) end
+    if fired then return end
     -- A solo raid lead alone is worth saying out loud too, even though it
     -- is not a premade and never changes the verdict.
     if #res.leaders == 0 and #(res.raidLeads or {}) == 0 then return end
@@ -809,6 +889,7 @@ function PremadeAlert:OnMatchActive()
     self._crownRes   = nil
     self:HideCopyButton()   -- fresh match: drop any stale button until we re-detect
     self:HideBanner()       -- and any stale banner from the previous match
+    if ns.Forecast then ns.Forecast:Reset() end   -- and the odds panel
     for _, t in ipairs(self._timers) do pcall(function() t:Cancel() end) end
     self._timers = {}
     -- Log catalog state at match start: a `leaders=0` here means the catalog
@@ -831,7 +912,9 @@ end
 -- a late-arriving enemy roster gets caught the moment it appears, instead of
 -- only at our fixed timer ticks. No-op once we've already announced.
 function PremadeAlert:OnBattlefieldScoreUpdate()
-    if fired then return end
+    -- Same pair of one-shots as autoScan: keep re-scanning while EITHER the
+    -- premade announce or the odds still has something to deliver.
+    if fired and (not ns.Forecast or ns.Forecast:Shown()) then return end
     if matchStart == 0 or (time() - matchStart) > SCAN_WINDOW_SEC then return end
     autoScan()
 end

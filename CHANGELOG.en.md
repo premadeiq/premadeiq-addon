@@ -2,6 +2,27 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.45] — 2026-09-06
+
+### Added
+- **Win chances for the match.** The addon reads both teams off the scoreboard,
+  looks them up in the winrate table the Uploader ships, and shows which side is
+  favoured — before the battle decides it. The line lives in the tracked-players
+  panel and updates as the scoreboard fills; hover it to see what the number is
+  made of (each side's average winrate and the share of players the database has
+  never seen), click it to copy that for chat. `/piq odds` answers on demand and
+  says plainly when there is not enough data.
+- It is all computed **inside the game**, with no server round trip: WoW only
+  hands data out on an interface reload, so asking mid-match is impossible.
+
+### Notes
+- The forecast is right about **72%** of the time — a hint, not a verdict: it is
+  wrong roughly every third or fourth match, which is stated under the number
+  itself. That figure is measured on starting rosters, the same partial
+  scoreboard the addon actually reads.
+- Requires **Uploader 0.9.2 or newer** — it is what delivers the winrate table.
+  Per-player winrates are never shown in game; only the team summary.
+
 ## [0.9.44] — 2026-09-04
 
 ### Added

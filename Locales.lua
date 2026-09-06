@@ -31,6 +31,30 @@ local en = {
     -- notice. Never phrased as an accusation — the metric it comes from
     -- catches deliberate raid leaders too, the owner included.
     ["RaidLeadDetected"]       = "Usually takes raid lead: %s",
+    -- Odds line. Two strings, never one: the percentage alone reads as a
+    -- verdict, and it is a 72%-accurate guess. English like the rest of the
+    -- banner (FORCE_EN) because the same text is what people paste into chat.
+    ["ForecastOdds"]           = "Chances: us %d%% — enemy %d%%",
+    ["ForecastNote"]           = "PremadeIQ forecast — right about %d%% of the time",
+    ["ForecastCopy"]           = "Chances %d/%d (PremadeIQ forecast, ~%d%% right)",
+    -- /piq odds: says why there is no number, so "nothing appeared" can be
+    -- told apart from "the scoreboard has not finished loading".
+    ["ForecastNoData"]         = "not enough known players yet: %d of %d on our side, %d of %d on theirs (need %d each)",
+    ["ForecastNotInBG"]        = "odds are only available inside a battleground",
+    ["ForecastNoCache"]        = "no winrate data installed yet — the Uploader ships it",
+    -- Compact form for the targets panel, which is narrow and lives on
+    -- screen for the whole match.
+    ["ForecastPanel"]          = "Odds %d%% — %d%%   ·   WR %d vs %d   ·   new %d%% vs %d%%",
+    -- Tooltip on that line: the forecast shows its working, because a bare
+    -- percentage cannot be argued with and therefore cannot be judged.
+    ["ForecastTipTitle"]       = "Win chances for this match",
+    ["ForecastTipSides"]       = "Us %d%%  —  Enemy %d%%",
+    ["ForecastTipWr"]          = "Average winrate: %d%% vs %d%%",
+    ["ForecastTipNew"]         = "Never seen before: %d%% vs %d%%",
+    ["ForecastTipKnown"]       = "Found in the database: %d of %d vs %d of %d",
+    ["ForecastTipAcc"]         = "Right about %d%% of the time — a forecast, not a verdict.",
+    ["ForecastTipCopy"]        = "Click to copy for chat",
+    ["ForecastCopyFull"]       = "[PremadeIQ] Odds %d/%d — avg WR %d vs %d, never-seen %d%% vs %d%% (forecast, ~%d%% right)",
     ["PremadeLeaders"]         = "Premade leaders",
     ["PremadeMembers"]         = "Premade members",
     ["PremadeNone"]            = "No known premade leader in this match",
@@ -110,6 +134,7 @@ local en = {
         .. "  /piq uploader         — show Uploader download URL\n"
         .. "  /piq snapshot         — force snapshot (in BG)\n"
         .. "  /piq premade          — check enemy team for known premades\n"
+        .. "  /piq odds             — win chances for this match\n"
         .. "  /piq copy             — copy the last premade alert for chat\n"
         .. "  /piq debug on|off     — toggle verbose debug\n"
         .. "  /piq reset confirm    — wipe DB\n"
@@ -243,6 +268,7 @@ local ruRU = {
         .. "  /piq uploader         — ссылка на скачивание Uploader'а\n"
         .. "  /piq snapshot         — снять снимок вручную (в BG)\n"
         .. "  /piq premade          — проверить врага на известные премейды\n"
+        .. "  /piq odds             — шансы на победу в этом бою\n"
         .. "  /piq copy             — скопировать последнее уведомление для чата\n"
         .. "  /piq debug on|off     — режим отладки\n"
         .. "  /piq reset confirm    — стереть базу\n"
@@ -619,6 +645,11 @@ local FORCE_EN = {
     "PremadeDetected", "PremadePossible", "PremadeNoLeader",
     "PremadeLeaderLine", "PremadeNoLeaderLine", "PremadeMore",
     "PremadeGroups", "RaidLeadDetected",
+    "ForecastOdds", "ForecastNote", "ForecastCopy",
+    "ForecastNoData", "ForecastNotInBG", "ForecastNoCache",
+    "ForecastPanel", "ForecastTipTitle", "ForecastTipSides", "ForecastTipWr",
+    "ForecastTipNew", "ForecastTipKnown", "ForecastTipAcc", "ForecastTipCopy",
+    "ForecastCopyFull",
     "PremadeTargetsHeader",
     "PremadeTargetLeader",
     "PremadeTargetMember",

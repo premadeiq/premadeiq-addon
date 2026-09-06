@@ -420,6 +420,13 @@ SlashCmdList["PREMADEIQ"] = function(msg)
         if ns.PremadeAlert then ns.PremadeAlert:ManualScan() end
     elseif cmd == "copy" then
         if ns.PremadeAlert then ns.PremadeAlert:CopyLast() end
+    elseif cmd == "odds" or cmd == "forecast" then
+        -- Manual read of the odds line. The automatic one rides along with the
+        -- premade banner, which only appears when there IS a premade — in a
+        -- clean match there is nothing to attach it to, so this is how you ask.
+        if ns.Forecast then
+            for _, line in ipairs(ns.Forecast:Report()) do prnt(line) end
+        end
     elseif cmd == "reset" then
         cmdReset(arg)
     elseif cmd == "debug" then
