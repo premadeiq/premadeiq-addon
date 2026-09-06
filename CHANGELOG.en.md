@@ -2,6 +2,22 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.46] — 2026-09-06
+
+### Fixed
+- **Reloading mid-battle no longer loses the match.** A `/reload` wipes the
+  match context, and restoring it never worked: the battle fingerprint was
+  stamped when we landed in the instance — one to two minutes before the gates
+  open — and then disagreed with the real battle start by exactly the length of
+  that prep phase. On Epics that meant the restore failed every single time,
+  taking the match start time, the premade warning and the odds line with it.
+- **The "usually takes raid lead" notice is no longer suppressed by an empty
+  catalog.** Those players live in their own list, but the "catalog is empty"
+  check only looked at premade leaders and bailed out before reaching them. With
+  raid leads marked and no premades, the notice never appeared at all.
+- The copy dialog's title no longer freezes on whichever language was active
+  when the game started.
+
 ## [0.9.45] — 2026-09-06
 
 ### Added

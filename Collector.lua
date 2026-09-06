@@ -224,6 +224,19 @@ end
 -- start time.
 local ACTIVE_MATCH_FINGERPRINT_TOL = 15
 
+-- How often to look for the battle start after we land in the instance. The
+-- prep phase runs one to two minutes, so a 10-second check costs at most a
+-- dozen no-op calls and closes the window where a /reload has nothing precise
+-- to match against.
+local STAMP_RETRY_SEC = 10
+
+-- Ceiling on "the battle started after we arrived" when the parked record has
+-- no fingerprint at all (a /reload during the prep phase, before the ticker
+-- above got a chance). Generous against the longest prep, still far short of
+-- the time it takes to leave a battleground and land in another one on the
+-- same map.
+local PREP_WINDOW_MAX_SEC = 600
+
 -- When WE consider a parked record too old to mean anything. Mirrors the
 -- server's absolute duration ceiling (integrity._MAX_DURATION_SEC).
 local ACTIVE_MATCH_MAX_AGE_SEC = 21600
@@ -233,9 +246,35 @@ local ACTIVE_MATCH_MAX_AGE_SEC = 21600
 -- which is the very error the 0.9.33 fix removed. It is used only as a
 -- fingerprint — a value that is stable within one match and differs between
 -- matches.
+-- True once the battle itself is running (gates open), nil when the API can't
+-- say. GetActiveMatchDuration measures the BATTLE, so before that moment it
+-- reports 0 and the "start" derived from it is really our arrival time.
+local function battleEngaged()
+    if not (C_PvP and C_PvP.GetActiveMatchState) then return nil end
+    local engaged = Enum and Enum.PvPMatchState and Enum.PvPMatchState.Engaged
+    if engaged == nil then return nil end
+    local ok, state = pcall(C_PvP.GetActiveMatchState)
+    if not ok or type(state) ~= "number" then return nil end
+    return state >= engaged
+end
+
+-- Start of the BATTLE, or nil while it has not begun.
+--
+-- The nil case is the whole point, and it used to be missing. PVP_MATCH_ACTIVE
+-- fires when we land in the instance, which on an Epic is one to two MINUTES
+-- before the gates open — and at that moment GetActiveMatchDuration is still 0,
+-- so this returned our arrival instead of the battle start. Every later read,
+-- taken mid-battle, then disagreed with the parked one by exactly the length of
+-- the prep phase: 13 measurements from prod ranged 89-123 seconds against a
+-- 15-second tolerance, so RestoreContext refused EVERY reload on an Epic. The
+-- statistics, the premade alert and the odds line all went silent after a
+-- /reload, and the log said only "battle fingerprint X vs parked Y".
 local function battleStartStamp()
     local dur = C_PvP and C_PvP.GetActiveMatchDuration and C_PvP.GetActiveMatchDuration()
-    if type(dur) ~= "number" or dur < 0 then return nil end
+    if type(dur) ~= "number" or dur <= 0 then return nil end
+    -- A running clock is normally proof enough; when the state API is present
+    -- and says the battle has not started, believe it over the clock.
+    if battleEngaged() == false then return nil end
     return time() - math.floor(dur)
 end
 
@@ -296,11 +335,28 @@ function Collector:RestoreContext()
     -- the previous match's startedAt after leaving one battle and entering
     -- another on the same map.
     local liveStart = battleStartStamp()
-    if liveStart == nil or saved.battleStart == nil
-        or math.abs(liveStart - saved.battleStart) > ACTIVE_MATCH_FINGERPRINT_TOL then
-        dbg(("restore skipped: battle fingerprint %s vs parked %s")
-            :format(tostring(liveStart), tostring(saved.battleStart)))
+    if liveStart == nil then
+        dbg("restore skipped: the battle has no start time yet")
         return false
+    end
+    if saved.battleStart ~= nil then
+        if math.abs(liveStart - saved.battleStart) > ACTIVE_MATCH_FINGERPRINT_TOL then
+            dbg(("restore skipped: battle fingerprint %s vs parked %s")
+                :format(tostring(liveStart), tostring(saved.battleStart)))
+            return false
+        end
+    else
+        -- Parked before the gates opened, so there was no fingerprint to take
+        -- (and the ticker had not caught up yet). Fall back to the weaker but
+        -- still meaningful claim: this battle began AFTER we arrived, and no
+        -- longer ago than one prep phase. Getting back into a different match
+        -- on the same map inside that window is not something a person can do.
+        local delta = liveStart - saved.startedAt
+        if delta < 0 or delta > PREP_WINDOW_MAX_SEC then
+            dbg(("restore skipped: battle started %ds from our arrival")
+                :format(delta))
+            return false
+        end
     end
 
     ctx.startedAt     = saved.startedAt
@@ -330,6 +386,12 @@ function Collector:OnMatchActive()
         ctx.crownTicker:Cancel()
         ctx.crownTicker = nil
     end
+    -- Same treatment for the fingerprint retry: it holds a closure on ctx, so
+    -- leaving it running would re-park the NEXT match under this one's record.
+    if ctx.stampTicker then
+        ctx.stampTicker:Cancel()
+        ctx.stampTicker = nil
+    end
     -- Instance map id (GetInstanceInfo, 8th return) is the ONLY id space we
     -- use — it's what the server whitelists. The old fallback to
     -- C_Map.GetBestMapForUnit (UiMapID — a DIFFERENT id space) silently fed
@@ -357,6 +419,25 @@ function Collector:OnMatchActive()
     -- Park the parts of ctx that a /reload would otherwise destroy. See
     -- RestoreContext below for why this exists and what guards the read back.
     if ctx.isEBG then persistActiveMatch() end
+
+    -- The record just parked carries NO fingerprint on an Epic: the gates are
+    -- still shut, so there is no battle to stamp. Re-park once there is, and
+    -- then stop — from that point the record identifies this exact battle and a
+    -- /reload can be matched against it. Without this the parked record would
+    -- keep the weaker "arrived at" evidence for the whole match.
+    if ctx.isEBG then
+        ctx.stampTicker = C_Timer.NewTicker(STAMP_RETRY_SEC, function()
+            -- Match over, or context replaced: nothing left to stamp.
+            if not ctx.startedAt then
+                if ctx.stampTicker then ctx.stampTicker:Cancel(); ctx.stampTicker = nil end
+                return
+            end
+            if battleStartStamp() == nil then return end   -- gates still shut
+            persistActiveMatch()
+            dbg("battle fingerprint parked once the gates opened")
+            if ctx.stampTicker then ctx.stampTicker:Cancel(); ctx.stampTicker = nil end
+        end)
+    end
 
     -- Everyone in our party/raid at match start = presumed premade
     local n = GetNumGroupMembers() or 0
@@ -965,6 +1046,12 @@ function Collector:SnapshotMatch(statsSecret)
         ctx.crownTicker:Cancel()
         ctx.crownTicker = nil
     end
+    -- Same treatment for the fingerprint retry: it holds a closure on ctx, so
+    -- leaving it running would re-park the NEXT match under this one's record.
+    if ctx.stampTicker then
+        ctx.stampTicker:Cancel()
+        ctx.stampTicker = nil
+    end
     local allyCrowns
     if ctx.allyCrowns and next(ctx.allyCrowns) then
         allyCrowns = {}
@@ -1052,6 +1139,12 @@ function Collector:Reset()
     if ctx.crownTicker then
         ctx.crownTicker:Cancel()
         ctx.crownTicker = nil
+    end
+    -- Same treatment for the fingerprint retry: it holds a closure on ctx, so
+    -- leaving it running would re-park the NEXT match under this one's record.
+    if ctx.stampTicker then
+        ctx.stampTicker:Cancel()
+        ctx.stampTicker = nil
     end
     ctx = {}
 end

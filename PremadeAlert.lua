@@ -141,7 +141,11 @@ end
 -- PATRON or on a pre-0.8.2 catalog, which simply disables leaderless detection.
 local function ensureLookup()
     local cat = PremadeIQ_KnownPremades
-    if type(cat) ~= "table" or type(cat.leaders) ~= "table" then
+    -- Only the catalog itself is required. Demanding `leaders` here also threw
+    -- away `raid_leads`, so an owner who has marked solo raid leaders but no
+    -- premades yet lost the raid-lead notice too — two independent arrays, one
+    -- of which was hostage to the other.
+    if type(cat) ~= "table" then
         lookup, lookupName, lookupGen, leaderNameById = {}, {}, nil, {}
         lookupRaidLead = {}
         return
@@ -177,6 +181,7 @@ local function ensureLookup()
         return e
     end
 
+    if type(cat.leaders) ~= "table" then return end
     for _, ldr in ipairs(cat.leaders) do
         -- Stable group key; fall back to the guid on a pre-0.8.2 catalog so the
         -- present-leader path keeps working (leaderless just stays off then).
@@ -243,7 +248,13 @@ local function detectImpl()
 
     ensureLookup()
     for _ in pairs(lookup) do diag.cat = diag.cat + 1 end
-    if not next(lookup) and not next(lookupName) then return nil end
+    -- Nothing to match against at all. lookupRaidLead counts here too: marked
+    -- solo raid leaders are a SEPARATE array from the premade catalog, so a
+    -- catalog with raid leads but no premade leaders is not empty — bailing on
+    -- the premade tables alone silently dropped the raid-lead notice.
+    if not next(lookup) and not next(lookupName) and not next(lookupRaidLead) then
+        return nil
+    end
 
     local mine = myFaction()
     diag.mine = (mine == nil) and -1 or mine
@@ -495,7 +506,9 @@ end
 -- /piq copy (and on demand) — never auto-popped, so it can't steal WASD focus
 -- mid-fight.
 StaticPopupDialogs["PREMADEIQ_COPY"] = {
-    text = "PremadeIQ — " .. L["PremadeCopyHint"],
+    -- Filled in by ShowCopyDialog: a title baked in here would freeze the
+    -- language at load time, and the language is now switchable.
+    text = "PremadeIQ",
     button1 = CLOSE or "Close",
     hasEditBox = true,
     editBoxWidth = 350,
@@ -517,6 +530,7 @@ StaticPopupDialogs["PREMADEIQ_COPY"] = {
 
 function PremadeAlert:ShowCopyDialog(text)
     if not text or text == "" then return end
+    StaticPopupDialogs["PREMADEIQ_COPY"].text = "PremadeIQ — " .. L["PremadeCopyHint"]
     StaticPopup_Show("PREMADEIQ_COPY", nil, nil, text)
 end
 
