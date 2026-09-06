@@ -615,7 +615,14 @@ function Targets:UpdateVisibility()
     local panel, tray = self._panel, self._tray
     if not panel then return end
     local counts = self._headerCounts or { enemy = 0, ally = 0 }
+    -- Inside a battleground the panel always has something to say: even with
+    -- nobody worth tracking on the board, the odds line belongs here. Staying
+    -- visible is also what makes the odds reachable at all — this runs at the
+    -- END of ApplyPlayers, which bails out early during combat lockdown, so a
+    -- panel that is hidden when the fighting starts can never appear again
+    -- until it ends.
     local hasRows = ((counts.enemy or 0) + (counts.ally or 0)) > 0
+        or (C_PvP and C_PvP.IsBattleground and C_PvP.IsBattleground())
     self:RenderTray()
     if not hasRows then
         panel:Hide()
@@ -711,6 +718,9 @@ function Targets:ApplyPlayers(players)
                 self._pendingSignature = signature
             end
             self:SetHeaderStale(true)
+            -- Plain FontStrings stay writable in lockdown, and the odds are
+            -- the half of this panel that has to keep moving during a fight.
+            self:RenderOdds()
         else
             -- The roster came back to what is already on the buttons. Any
             -- pending update is now obsolete — dropping it matters, because
@@ -719,6 +729,7 @@ function Targets:ApplyPlayers(players)
             self._pendingPlayers = nil
             self._pendingSignature = nil
             self:SetHeaderStale(false)
+            self:RenderOdds()
         end
         return false
     end
@@ -823,6 +834,12 @@ function Targets:ApplyPlayers(players)
             self.MIN_PANEL_WIDTH
         )
         self._panel:SetSize(width, y - self.SECTION_GAP + self.PANEL_PADDING)
+    else
+        -- Nobody to list, but the panel still carries the odds. Height is the
+        -- header plus that one line; without this the frame keeps whatever
+        -- size the last populated roster left it at.
+        self._panel:SetSize(self.MIN_PANEL_WIDTH,
+                            self.HEADER_HEIGHT + self.ODDS_HEIGHT + self.PANEL_PADDING)
     end
     self:RenderHeader()
     self:RenderOdds()
@@ -875,7 +892,16 @@ function Targets:RenderOdds()
     if not panel or not panel.odds then return end
     local f = self._forecast
     if not f then
-        panel.odds:Hide()
+        -- Inside a battleground the panel stays up, so say why the number is
+        -- missing instead of leaving a bare header: the scoreboard fills over
+        -- the opening minute, and silence there reads as "broken".
+        if C_PvP and C_PvP.IsBattleground and C_PvP.IsBattleground() then
+            panel.odds:SetText(L["ForecastPending"])
+            panel.odds:SetTextColor(0.55, 0.55, 0.55)
+            panel.odds:Show()
+        else
+            panel.odds:Hide()
+        end
         if panel.oddsHit then panel.oddsHit:Hide() end
         return
     end

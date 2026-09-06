@@ -2,6 +2,21 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.47] — 2026-09-06
+
+### Changed
+- **The players panel now stays up for the whole battle.** It used to vanish
+  when the scoreboard held no premades and nobody you had marked — taking the
+  odds line with it, though that line has something to say in every match.
+  While the scoreboard is still loading it says so. Outside a battleground the
+  panel is hidden as before.
+- The odds now keep updating during combat: the line used to freeze, because
+  the panel's whole update path stops in combat for its protected buttons.
+
+### Fixed
+- The separators in the odds line no longer render as empty boxes — the UI font
+  does not draw the character that was there.
+
 ## [0.9.46] — 2026-09-06
 
 ### Fixed

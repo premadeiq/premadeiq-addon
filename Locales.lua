@@ -44,7 +44,13 @@ local en = {
     ["ForecastNoCache"]        = "no winrate data installed yet — the Uploader ships it",
     -- Compact form for the targets panel, which is narrow and lives on
     -- screen for the whole match.
-    ["ForecastPanel"]          = "Odds %d%% — %d%%   ·   WR %d vs %d   ·   new %d%% vs %d%%",
+    -- ASCII-safe separators only. U+00B7 MIDDLE DOT came out as empty boxes
+    -- in game (the same trap PremadeTargets documents for its own marks);
+    -- the em dash below does render, which is why it stays.
+    ["ForecastPanel"]          = "Odds %d%% — %d%%   (WR %d vs %d, new %d%% vs %d%%)",
+    -- The panel stays up for the whole battleground, so it has to say
+    -- something while the scoreboard is still filling.
+    ["ForecastPending"]        = "Odds: reading the scoreboard...",
     -- Tooltip on that line: the forecast shows its working, because a bare
     -- percentage cannot be argued with and therefore cannot be judged.
     ["ForecastTipTitle"]       = "Win chances for this match",
@@ -648,6 +654,7 @@ local FORCE_EN = {
     "ForecastOdds", "ForecastNote", "ForecastCopy",
     "ForecastNoData", "ForecastNotInBG", "ForecastNoCache",
     "ForecastPanel", "ForecastTipTitle", "ForecastTipSides", "ForecastTipWr",
+    "ForecastPending",
     "ForecastTipNew", "ForecastTipKnown", "ForecastTipAcc", "ForecastTipCopy",
     "ForecastCopyFull",
     "PremadeTargetsHeader",
