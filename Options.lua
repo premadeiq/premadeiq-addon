@@ -88,12 +88,31 @@ cbPremadeSound:SetScript("OnClick", function(self)
     ns.Database:SetSetting("premadeSound", self:GetChecked() and true or false)
 end)
 
+-- ---- Win-chance line checkbox ---------------------------------------
+-- Defaults ON, like the alert above. Not a performance switch — the whole
+-- forecast is ~1 MB of cached winrates and a fraction of a millisecond per
+-- scan, on rows the panel already read. It is here because a probability on
+-- screen is a matter of taste: some people want the read, others want to play
+-- the battleground without one.
+local cbForecast = CreateFrame("CheckButton", "PremadeIQForecastCB", panel,
+    "InterfaceOptionsCheckButtonTemplate")
+cbForecast:SetPoint("TOPLEFT", cbPremadeSound, "BOTTOMLEFT", 0, -4)
+cbForecast:SetScript("OnClick", function(self)
+    ns.Database:SetSetting("forecast", self:GetChecked() and true or false)
+    -- Apply immediately: waiting for the next scoreboard scan would look like
+    -- the switch did nothing.
+    if ns.PremadeTargets then
+        ns.PremadeTargets:ResetForecast()
+        ns.PremadeTargets:RenderOdds()
+    end
+end)
+
 -- ---- Minimap button checkbox ----------------------------------------
 -- Minimap buttons are a matter of taste, and an argument costs more than a
 -- checkbox. Defaults ON: only an explicit false hides it.
 local cbMinimap = CreateFrame("CheckButton", "PremadeIQMinimapCB", panel,
     "InterfaceOptionsCheckButtonTemplate")
-cbMinimap:SetPoint("TOPLEFT", cbPremadeSound, "BOTTOMLEFT", 0, -4)
+cbMinimap:SetPoint("TOPLEFT", cbForecast, "BOTTOMLEFT", 0, -4)
 cbMinimap:SetScript("OnClick", function(self)
     if ns.MinimapButton then ns.MinimapButton:SetShown(self:GetChecked()) end
 end)
@@ -449,6 +468,7 @@ function panel:ApplyStrings()
     cbDebug.Text:SetText(L["OptDebug"])
     cbPremade.Text:SetText(L["OptPremadeAlert"])
     cbPremadeSound.Text:SetText(L["OptPremadeSound"])
+    cbForecast.Text:SetText(L["OptForecast"])
     cbMinimap.Text:SetText(L["OptMinimapButton"])
     targetsHeader:SetText(L["OptTargetsHeader"])
     statsHeader:SetText(L["OptStatsHeader"])
@@ -460,6 +480,7 @@ function panel:ApplyStrings()
     cbDebug.tooltipText = L["OptDebugTooltip"]
     cbPremade.tooltipText = L["OptPremadeAlertTooltip"]
     cbPremadeSound.tooltipText = L["OptPremadeSoundTooltip"]
+    cbForecast.tooltipText = L["OptForecastTooltip"]
     cbMinimap.tooltipText = L["OptMinimapButtonTooltip"]
     linksBody:SetText(L["UploaderURL"] .. "\n" .. L["DiscordURL"])
     for _, row in ipairs(stepperRows) do row:RefreshText() end
@@ -473,6 +494,7 @@ panel:SetScript("OnShow", function()
     -- Premade toggles default ON: only an explicit ``false`` unchecks them.
     cbPremade:SetChecked(not ns.Database or ns.Database:GetSetting("premadeAlert") ~= false)
     cbPremadeSound:SetChecked(not ns.Database or ns.Database:GetSetting("premadeSound") ~= false)
+    cbForecast:SetChecked(not ns.Database or ns.Database:GetSetting("forecast") ~= false)
     cbMinimap:SetChecked(not ns.Database
         or ns.Database:GetSetting("minimapButton") ~= false)
     languageRow:Refresh()

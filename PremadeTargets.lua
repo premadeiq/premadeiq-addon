@@ -905,7 +905,11 @@ function Targets:RenderOdds()
         if panel.oddsHit then panel.oddsHit:Hide() end
         return
     end
-    panel.odds:SetText(L["ForecastPanel"]:format(
+    -- Two states, and the difference matters: until the scoreboard settles the
+    -- number is still moving, and once locked it is the one the model was
+    -- actually calibrated for.
+    local key = self._forecastLocked and "ForecastPanelDone" or "ForecastPanelWorking"
+    panel.odds:SetText(L[key]:format(
         f.us, f.them,
         math.floor(f.ourWr + 0.5), math.floor(f.theirWr + 0.5),
         math.floor(f.ourNew + 0.5), math.floor(f.theirNew + 0.5)))
@@ -923,15 +927,65 @@ end
 --
 -- Claiming the "already delivered" slot keeps the standalone panel from saying
 -- the same thing twice — it exists for matches where this panel never appears.
+-- Scans with no growth in the scoreboard before the forecast is locked. The
+-- panel scans about every two seconds, so this is roughly fifteen seconds of a
+-- board that has stopped filling.
+local FORECAST_STABLE_SCANS = 8
+
 function Targets:UpdateForecast(rows, side)
     if not ns.Forecast then return end
+    if getSetting("forecast", true) == false then
+        if self._forecast ~= nil then self._signature = nil end
+        self._forecast = nil
+        return
+    end
+    -- Locked: the number was computed on the roster the model was calibrated
+    -- for, and re-computing it later would quietly turn a forecast into a
+    -- description.
+    --
+    -- The model is fitted on STARTING rosters (match_baseline_rows). Applying
+    -- it to a mid-battle scoreboard is applying it outside the ground it was
+    -- measured on — and the drift flatters us: the losing side empties out
+    -- first, so the number would creep toward an outcome that is already
+    -- visible on the objectives, and look prescient for it.
+    if self._forecastLocked then return end
+
+    local seen = #rows
+    if seen > (self._forecastPeakRows or 0) then
+        self._forecastPeakRows = seen
+        self._forecastStable = 0
+    else
+        self._forecastStable = (self._forecastStable or 0) + 1
+    end
+
     local before = self._forecast
     self._forecast = ns.Forecast:ForMatch(rows, side)
     if self._forecast then ns.Forecast:MarkShown() end
+
+    -- Lock once the board has a forecast AND has stopped growing: either it sat
+    -- still for long enough, or it started SHRINKING, which means people are
+    -- leaving and the starting roster is already gone.
+    if self._forecast
+        and ((self._forecastStable or 0) >= FORECAST_STABLE_SCANS
+             or seen < (self._forecastPeakRows or 0)) then
+        self._forecastLocked = true
+        self._signature = nil          -- the label changes, so re-render
+    end
+
     -- Appearing or disappearing changes the layout, so a scan that only moved
     -- the odds still has to re-apply. ApplyPlayers is signature-guarded and
     -- would otherwise skip it.
     if (before == nil) ~= (self._forecast == nil) then self._signature = nil end
+end
+
+-- New match: the previous one's number must not carry over, and the lock has
+-- to open again.
+function Targets:ResetForecast()
+    self._forecast = nil
+    self._forecastLocked = nil
+    self._forecastPeakRows = nil
+    self._forecastStable = nil
+    self._signature = nil
 end
 
 function Targets:SetHeaderStale(stale)
@@ -979,7 +1033,7 @@ function Targets:RefreshFromScoreboard(force, requestData)
     if not (C_PvP and C_PvP.IsBattleground and C_PvP.IsBattleground()) then
         -- Out of the battleground: drop the odds too, or the next match opens
         -- showing the previous one's chances.
-        self._forecast = nil
+        self:ResetForecast()
         return self:ApplyPlayers({})
     end
 
@@ -1176,6 +1230,7 @@ eventFrame:SetScript("OnEvent", function(_, event, arg1)
     elseif event == "PVP_MATCH_ACTIVE" then
         Targets._lastScanAt = 0
         Targets._lastRequestAt = 0
+        Targets:ResetForecast()
         Targets:ScheduleStartupBurst()
         Targets:StartTicker()
     elseif event == "UPDATE_BATTLEFIELD_SCORE" then

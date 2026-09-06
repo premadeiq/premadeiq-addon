@@ -2,6 +2,26 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.48] — 2026-09-07
+
+### Changed
+- **The odds no longer drift during the battle.** They used to be recomputed on
+  every scoreboard scan, and a scoreboard changes as people leave — so the
+  number crept toward an outcome that was already visible, looking wiser than it
+  was. It is now computed while the scoreboard fills and locked once it stops
+  growing, on the starting roster the accuracy was measured against.
+- **The line says what it is doing:** "reading the scoreboard", then
+  "calculating", and a locked result is marked "final".
+- **The forecast strings are translated** into every language the addon ships.
+  Only the premade warning and the copy-for-chat text stay English — those are
+  read by a mixed-language battleground.
+
+### Added
+- A "show win chances" switch in the settings (`/piq options`), on by default.
+  Not for performance: the whole winrate cache is about 1 MB of memory and a
+  single forecast takes hundredths of a millisecond, over rows the panel has
+  already read.
+
 ## [0.9.47] — 2026-09-06
 
 ### Changed
