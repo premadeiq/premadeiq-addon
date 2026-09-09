@@ -835,11 +835,13 @@ function Targets:ApplyPlayers(players)
         )
         self._panel:SetSize(width, y - self.SECTION_GAP + self.PANEL_PADDING)
     else
-        -- Nobody to list, but the panel still carries the odds. Height is the
+        -- Nobody to list, but the panel may still carry the odds. Height is the
         -- header plus that one line; without this the frame keeps whatever
-        -- size the last populated roster left it at.
-        self._panel:SetSize(self.MIN_PANEL_WIDTH,
-                            self.HEADER_HEIGHT + self.ODDS_HEIGHT + self.PANEL_PADDING)
+        -- size the last populated roster left it at. Outside an epic there is
+        -- no odds line at all, so the space is not reserved either.
+        local height = self.HEADER_HEIGHT + self.PANEL_PADDING
+        if self:OddsLineVisible() then height = height + self.ODDS_HEIGHT end
+        self._panel:SetSize(self.MIN_PANEL_WIDTH, height)
     end
     self:RenderHeader()
     self:RenderOdds()
@@ -887,15 +889,28 @@ end
 --
 -- Like the header, a plain FontString on the non-secure panel, so SetText stays
 -- legal in combat lockdown.
+-- Is there an odds line on the panel at all? A number, or the "still reading"
+-- placeholder that stands in for one while the scoreboard fills.
+--
+-- Guarded rather than a plain call: the .toc loads this file BEFORE Forecast.lua
+-- and Collector.lua, and the UI test harness loads it alone. A missing helper
+-- means "no epic here", which is the safe answer.
+function Targets:OddsLineVisible()
+    if self._forecast then return true end
+    return (ns.IsEpicBGNow and ns.IsEpicBGNow()) and true or false
+end
+
 function Targets:RenderOdds()
     local panel = self._panel
     if not panel or not panel.odds then return end
     local f = self._forecast
     if not f then
-        -- Inside a battleground the panel stays up, so say why the number is
-        -- missing instead of leaving a bare header: the scoreboard fills over
-        -- the opening minute, and silence there reads as "broken".
-        if C_PvP and C_PvP.IsBattleground and C_PvP.IsBattleground() then
+        -- Inside an EPIC battleground the panel stays up, so say why the number
+        -- is missing instead of leaving a bare header: the scoreboard fills over
+        -- the opening minute, and silence there reads as "broken". Anywhere
+        -- else there is no forecast to wait for (Forecast:ForMatch), so
+        -- promising one would be a lie that never resolves.
+        if self:OddsLineVisible() then
             panel.odds:SetText(L["ForecastPending"])
             panel.odds:SetTextColor(0.55, 0.55, 0.55)
             panel.odds:Show()
@@ -927,47 +942,53 @@ end
 --
 -- Claiming the "already delivered" slot keeps the standalone panel from saying
 -- the same thing twice — it exists for matches where this panel never appears.
--- Scans with no growth in the scoreboard before the forecast is locked. The
--- panel scans about every two seconds, so this is roughly fifteen seconds of a
--- board that has stopped filling.
-local FORECAST_STABLE_SCANS = 8
+-- How full is the board, for the purpose of "has it stopped filling"? The
+-- SMALLER of the two sides, not the row count: our half routinely finishes
+-- loading while the enemy half is still arriving, and one side gaining a player
+-- as the other loses one leaves the total unmoved — which used to read as a
+-- board that had settled.
+local function sidesSeen(rows)
+    local n0, n1 = 0, 0
+    for _, row in ipairs(rows or {}) do
+        if row.faction == 0 then n0 = n0 + 1
+        elseif row.faction == 1 then n1 = n1 + 1 end
+    end
+    return (n0 < n1) and n0 or n1
+end
 
 function Targets:UpdateForecast(rows, side)
     if not ns.Forecast then return end
     if getSetting("forecast", true) == false then
         if self._forecast ~= nil then self._signature = nil end
         self._forecast = nil
+        -- Clear the lock too. Without this, switching the setting back on
+        -- mid-battle hits the `_forecastLocked` early-out below and the match
+        -- finishes with no number at all.
+        self._forecastLocked = nil
+        self._forecastPeakRows = nil
+        self._forecastStable = nil
         return
     end
     -- Locked: the number was computed on the roster the model was calibrated
-    -- for, and re-computing it later would quietly turn a forecast into a
-    -- description.
-    --
-    -- The model is fitted on STARTING rosters (match_baseline_rows). Applying
-    -- it to a mid-battle scoreboard is applying it outside the ground it was
-    -- measured on — and the drift flatters us: the losing side empties out
-    -- first, so the number would creep toward an outcome that is already
-    -- visible on the objectives, and look prescient for it.
+    -- for. See Core.ForecastScanGate for why it must not move afterwards.
     if self._forecastLocked then return end
 
-    local seen = #rows
-    if seen > (self._forecastPeakRows or 0) then
-        self._forecastPeakRows = seen
-        self._forecastStable = 0
-    else
-        self._forecastStable = (self._forecastStable or 0) + 1
+    local before = self._forecast
+    local recompute, lockIfForecast, peak, stable = ns.PremadeTargetsCore.ForecastScanGate(
+        self._forecastPeakRows, self._forecastStable,
+        sidesSeen(rows), self._forecast ~= nil)
+    self._forecastPeakRows, self._forecastStable = peak, stable
+
+    if recompute then
+        local fresh = ns.Forecast:ForMatch(rows, side)
+        -- Never trade a number back for silence: a scan that momentarily reads
+        -- half a board would otherwise drop the panel back to "reading the
+        -- scoreboard" and re-lay out the panel for it.
+        if fresh or not self._forecast then self._forecast = fresh end
+        if self._forecast then ns.Forecast:MarkShown() end
     end
 
-    local before = self._forecast
-    self._forecast = ns.Forecast:ForMatch(rows, side)
-    if self._forecast then ns.Forecast:MarkShown() end
-
-    -- Lock once the board has a forecast AND has stopped growing: either it sat
-    -- still for long enough, or it started SHRINKING, which means people are
-    -- leaving and the starting roster is already gone.
-    if self._forecast
-        and ((self._forecastStable or 0) >= FORECAST_STABLE_SCANS
-             or seen < (self._forecastPeakRows or 0)) then
+    if lockIfForecast and self._forecast then
         self._forecastLocked = true
         self._signature = nil          -- the label changes, so re-render
     end

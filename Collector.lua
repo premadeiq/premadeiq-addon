@@ -25,6 +25,22 @@ function ns.IsEBGInstanceID(id)
     return id ~= nil and ns.EBG_INSTANCE_IDS[id] == true
 end
 
+-- "Am I standing in an Epic BG right now?" — read live, for the modules that
+-- need the answer without owning a match context.
+--
+-- Deliberately NOT Collector:IsEBGMatch(), which reports what PVP_MATCH_ACTIVE
+-- decided: walking into a battle already in progress never fires that event,
+-- and GetInstanceInfo answers honestly anyway. Position 8 is the instanceID —
+-- the same read AdoptInstanceID and the ACTIVE handler below use.
+function ns.IsEpicBGNow()
+    if not (C_PvP and C_PvP.IsBattleground and C_PvP.IsBattleground()) then
+        return false
+    end
+    if type(GetInstanceInfo) ~= "function" then return false end
+    local ok, id = pcall(function() return select(8, GetInstanceInfo()) end)
+    return (ok and ns.IsEBGInstanceID(id)) and true or false
+end
+
 -- Match context populated on PVP_MATCH_ACTIVE, finalised on PVP_MATCH_COMPLETE.
 local ctx = {}
 

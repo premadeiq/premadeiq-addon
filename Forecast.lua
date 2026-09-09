@@ -42,16 +42,68 @@ ns.Forecast = Forecast
 -- the scoreboard still loading, which only the addon can see.
 local MIN_SIDE_ROWS = 10
 
--- Fallback if the shipped file predates the field. Same value the server
--- currently sends; kept in sync by nothing but this comment, which is fine —
--- it only matters for a file too old to carry its own floor.
+-- Fallback when the shipped file carries no usable floor of its own. Same value
+-- the server currently sends; kept in sync by nothing but this comment, which
+-- is fine — it only matters for a file that failed to bring its own.
 local DEFAULT_MIN_KNOWN = 8
 
-local function statsTable()
-    local s = PremadeIQ_PlayerStats
+-- The shape this code knows how to read. The server stamps the same number
+-- (player_stats.STATS_VERSION) and bumps it when the file changes in a way an
+-- old addon must REFUSE to read — which only works if somebody actually looks,
+-- so this is that somebody. tests/test_stats_version_contract.py keeps the two
+-- numbers equal.
+--
+-- Order of a future bump matters: server first, addon in the release that
+-- follows. The other way round every player of the new addon goes silent until
+-- the deploy lands.
+local STATS_FILE_VERSION = 1
+
+-- Past this age the cache stops describing the battlegrounds being played:
+-- players who took a break drop out of the server's 60-day activity window,
+-- newcomers are missing entirely, and everyone new reads as a "stranger".
+--
+-- 45 days rather than something tighter because a still `generated_at` does not
+-- have to mean a broken Uploader: the file is only rewritten when the server's
+-- content version moves, and that is derived from the newest match in the
+-- database — a quiet week legitimately freezes the timestamp with everything
+-- working. This catches "the Uploader has not run in a month and a half", not
+-- "the owner went on holiday".
+local STALE_SEC = 45 * 86400
+
+-- Is this file something to compute from? Exposed (and taking `now`) so the
+-- test can hand it a fixture instead of a global and a clock.
+--
+-- Every rejection here is the same message to the player — "no winrate data,
+-- the Uploader ships it" — because every one of them has the same fix.
+function Forecast.UsableStats(s, now)
     if type(s) ~= "table" then return nil end
     if type(s.players) ~= "table" or type(s.model) ~= "table" then return nil end
+    if tonumber(s.version) ~= STATS_FILE_VERSION then return nil end
+
+    -- A zero model is what the stub shipped inside the addon package carries
+    -- (package_addon.PLAYER_STATS_STUB), so that an install without an Uploader
+    -- computes nothing rather than running made-up coefficients. Without this
+    -- check it does not compute nothing — it computes a confident-looking
+    -- "50% — 50%", because a zero coefficient times anything is a coin flip.
+    local m = s.model
+    if type(m.wr) ~= "number" or m.wr == 0 then return nil end
+    if type(m.new) ~= "number" then return nil end
+
+    local generatedAt = tonumber(s.generated_at)
+    if not generatedAt or generatedAt <= 0 then return nil end
+    if now then
+        -- Clamped for the same reason Database:CatalogFreshness clamps: a
+        -- client clock behind the server's must not read as a fresh file, and
+        -- one ahead of it must not read as an ancient one.
+        local age = now - generatedAt
+        if age > STALE_SEC then return nil end
+    end
     return s
+end
+
+local function statsTable()
+    return Forecast.UsableStats(PremadeIQ_PlayerStats,
+                               (type(time) == "function") and time() or nil)
 end
 
 -- "Name-Realm" -> realm, name. The cache is grouped by realm (it halves the
@@ -104,7 +156,12 @@ function Forecast.ComputeFrom(stats, roster, mine, myRealm)
     end
 
     local us, them = sides[mine], sides[1 - mine]
-    local minKnown = tonumber(stats.min_known) or DEFAULT_MIN_KNOWN
+    -- A floor below 1 is not a floor: it lets a side through with nobody known
+    -- and turns the mean below into 0/0. The writer fills the field in with a
+    -- zero when the server sends no floor at all (stats_writer.render_stats_lua),
+    -- so "present but useless" is a real shape, not a hypothetical one.
+    local minKnown = tonumber(stats.min_known)
+    if not minKnown or minKnown < 1 then minKnown = DEFAULT_MIN_KNOWN end
     -- Second return value explains the silence: /piq odds prints it, so "no
     -- line appeared" can be told apart from "the scoreboard is still loading"
     -- without reading the code.
@@ -113,6 +170,10 @@ function Forecast.ComputeFrom(stats, roster, mine, myRealm)
                   minRows = MIN_SIDE_ROWS }
     if us.n < MIN_SIDE_ROWS or them.n < MIN_SIDE_ROWS then return nil, why end
     if us.known < minKnown or them.known < minKnown then return nil, why end
+    -- Belt and braces before the two means below: minKnown is >= 1 by now, so
+    -- this cannot fire — but a division by zero in Lua does not raise, it
+    -- returns a nan that travels silently into string.format("%d").
+    if us.known < 1 or them.known < 1 then return nil, why end
 
     -- Values in the cache are already whole percents, so the difference of the
     -- two means is already in percentage points — no rescaling here.
@@ -168,12 +229,41 @@ end
 -- Live entry point: reads the shipped file and the viewer's realm.
 -- `mine` is only a fallback — the caller derives it from UnitFactionGroup,
 -- which is wrong for mercenaries.
-function Forecast:ForMatch(roster, mine)
+--
+-- Epic battlegrounds ONLY, and this is the gate for every caller. Everything
+-- underneath the number is epic-shaped: the winrates were collected there (the
+-- server quarantines every other map), and the coefficients were fitted on
+-- 40-a-side starting rosters. In a 15-a-side Arathi the row floor is cleared
+-- within seconds and the addon would happily show a number carrying a "72%
+-- accurate" caption that nobody ever measured there.
+function Forecast:Evaluate(roster, mine)
+    if not (ns.IsEpicBGNow and ns.IsEpicBGNow()) then return nil end
     local realm = GetNormalizedRealmName and GetNormalizedRealmName()
     local side = currentSide()
     if side ~= 0 and side ~= 1 then side = mine end
     return Forecast.ComputeFrom(statsTable(), roster, side,
                                 (realm ~= "" and realm) or nil)
+end
+
+-- The "Show win chances" switch in the options. Read here rather than passed
+-- in, because here is the only place that sees every display: the panel line,
+-- the premade banner and the standalone pop-up all arrive through ForMatch.
+-- It used to be checked in the panel alone, so turning the feature off silenced
+-- one of the three and left the other two appearing.
+local function forecastEnabled()
+    local db = PremadeIQ_DB
+    local settings = (type(db) == "table") and db.settings or nil
+    return (settings and settings.forecast) ~= false
+end
+
+-- Everything that DISPLAYS odds by itself comes through here.
+--
+-- /piq odds deliberately does not: it goes straight to Evaluate. Someone who
+-- typed the command is asking this once, and answering "you turned that off"
+-- to a direct question is worse than answering it.
+function Forecast:ForMatch(roster, mine)
+    if not forecastEnabled() then return nil end
+    return Forecast:Evaluate(roster, mine)
 end
 
 -- Read both teams off the scoreboard: name and side, nothing else.
@@ -209,13 +299,22 @@ function Forecast:ScanBoard()
 end
 
 -- Chat lines for /piq odds: the forecast, or why there isn't one.
+--
+-- Three separate silences, and telling them apart is the whole point of the
+-- command: "not in a battleground", "in one, but not an epic" and "in an epic,
+-- still reading the board" call for three different reactions from the player.
+-- ForMatch collapses all of them into nil, so the first two are answered here,
+-- before it is asked.
 function Forecast:Report()
     local L = ns.L
     local stats = statsTable()
     if not stats then return { L["ForecastNoCache"] } end
     local roster = Forecast:ScanBoard()
     if not roster then return { L["ForecastNotInBG"] } end
-    local f, why = Forecast:ForMatch(roster, nil)
+    if not (ns.IsEpicBGNow and ns.IsEpicBGNow()) then
+        return { L["ForecastNotEBG"] }
+    end
+    local f, why = Forecast:Evaluate(roster, nil)
     if f then
         return {
             L["ForecastOdds"]:format(f.us, f.them),

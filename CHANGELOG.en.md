@@ -2,6 +2,29 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.49] — 2026-09-09
+
+### Fixed
+- **The odds are now an epic-battleground feature only.** The line used to
+  appear in any battleground, 15-a-side ones included — but the winrates behind
+  it were collected in epics, and so was the accuracy printed next to it. In a
+  regular battleground the number looked just as confident with nothing behind
+  it.
+- **A locked forecast is no longer spoiled at the moment it locks.** When the
+  scoreboard started emptying, the number was first recomputed without the
+  players who had left and only then frozen — so the spoiled one was what got
+  kept. It now freezes what was computed on the full roster. "How full is the
+  board" is also measured by the smaller of the two teams: our half filling
+  while theirs emptied left the total unchanged, and the forecast settled early.
+- **The "Show win chances" switch now silences all three places.** It removed
+  the line from the players panel while the standalone pop-up and the premade
+  banner kept announcing odds. An explicit `/piq odds` still answers — that is a
+  question asked out loud.
+- **The addon refuses to compute from an unusable winrate cache.** A file of an
+  unknown version, older than 45 days, or with no coefficients now reads as "no
+  data". A zero model used to produce not silence but a flat "50% — 50%"
+  captioned "0% accurate" — zero times anything is a coin flip.
+
 ## [0.9.48] — 2026-09-07
 
 ### Changed

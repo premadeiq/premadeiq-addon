@@ -371,3 +371,49 @@ end
 function Core.ShouldDeferSecureUpdate(inCombat, currentSignature, players)
     return inCombat and currentSignature ~= Core.PlayerSignature(players)
 end
+
+-- ── When to recompute the odds, and when to stop ─────────────────────────
+-- The forecast is fitted on STARTING rosters, so it has to be computed while
+-- the scoreboard is still filling and then left alone. Recomputing all match
+-- turns a forecast into a description: the losing side empties out first, so
+-- the number would creep toward an outcome already visible on the objectives
+-- and look prescient for it.
+--
+-- Pure so it can be tested — the UI file it is called from needs the whole WoW
+-- frame API to load.
+--
+--   peak, stable   what the caller remembers between scans
+--   seen           how full the board is NOW; the CALLER decides what to
+--                  measure — see UpdateForecast, which passes the smaller of
+--                  the two sides rather than the row count, because one half
+--                  filling while the other empties leaves a total unmoved
+--   haveForecast   whether a number already exists
+--
+-- Returns: recompute, lockIfForecast, peak, stable.
+--
+-- `lockIfForecast` rather than `lock` on purpose: whether there is anything to
+-- freeze is only known AFTER the recompute, and freezing an empty forecast
+-- would end the match with no number at all.
+Core.FORECAST_STABLE_SCANS = 8
+
+function Core.ForecastScanGate(peak, stable, seen, haveForecast)
+    peak, stable = peak or 0, stable or 0
+
+    if seen > peak then
+        -- Still filling: nothing is settled, so keep recomputing.
+        return true, false, seen, 0
+    end
+
+    if seen < peak then
+        -- The board is SHRINKING — people are leaving and the starting roster
+        -- is already gone. Freeze what we have; recompute only if we have
+        -- nothing, because a late number beats no number and there will be no
+        -- fuller board to wait for.
+        return not haveForecast, true, peak, stable
+    end
+
+    -- Unchanged: it may simply have stopped filling. Count the quiet scans and
+    -- freeze once there have been enough of them.
+    stable = stable + 1
+    return true, stable >= Core.FORECAST_STABLE_SCANS, peak, stable
+end
