@@ -4,7 +4,7 @@
 ## Notes: Collects BG post-match stats and objective-ownership timelines. Requires PremadeIQ Uploader to contribute to the community database.
 ## Notes-ruRU: Сбор постматчевой статистики и таймлайна владения точками на эпических полях боя. Для отправки в общую базу нужен PremadeIQ Uploader.
 ## Author: coldo
-## Version: 0.9.49
+## Version: 0.9.50
 ## SavedVariables: PremadeIQ_DB, PremadeIQ_LiveMatch, PremadeIQ_Watch
 ## DefaultState: enabled
 ## IconTexture: Interface\AddOns\PremadeIQ\Media\logo.tga

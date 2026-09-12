@@ -2,6 +2,16 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.50] — 2026-09-12
+
+### Fixed
+- **The welcome screen no longer offers a paid tier — there isn't one.** The
+  first-run text said the King of EBG tier on Patreon adds deeper dashboard
+  tools. Since 12 September that is not true: there is no paid access any more,
+  and the rest of the site — player search, match breakdowns, enemy leaders —
+  is opened by five matches a week. The text is corrected in all six languages;
+  nothing else in the addon changed.
+
 ## [0.9.49] — 2026-09-09
 
 ### Fixed

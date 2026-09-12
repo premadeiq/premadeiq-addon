@@ -42,7 +42,9 @@ against and stays quiet.
    server), play one Epic BG, and type `/reload` or log out so the game
    writes the match to disk.
 3. One finished Epic BG a week keeps your access open. Free.
-4. (optional) The **King of EBG** Patreon tier adds deeper stats on the site.
+4. Contribute five matches a week and the site opens fully: player search,
+   match breakdowns, enemy leaders. No payment — the paid tier was removed
+   on 2026-09-12.
 
 Don't want to share? Just don't install the Uploader — the addon stays purely
 local.

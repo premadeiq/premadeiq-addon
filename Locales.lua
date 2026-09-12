@@ -160,7 +160,8 @@ local en = {
         .. "  2. Play one Epic BG and let it upload\n\n"
         .. "One finished Epic BG a week keeps it open: premade warnings, the full\n"
         .. "leaderboard and deserters. Free.\n\n"
-        .. "Optional: the King of EBG tier on Patreon adds deeper dashboard tools.\n"
+        .. "Five a week open the rest of the site: player search, match\n"
+        .. "breakdowns, enemy leaders. Also free — no subscription anywhere.\n"
         .. "Use /piq uploader to see the link again.",
     -- /go, not /install, and that is deliberate: this short path is
     -- printed by the addon and by nothing else, so a hit on it means
@@ -295,7 +296,8 @@ local ruRU = {
         .. "  2. Сыграй один эпический бой и дай ему выгрузиться\n\n"
         .. "Один доигранный эпический бой в неделю держит доступ открытым:\n"
         .. "предупреждения о премейдах, полный лидерборд, дезертиры. Бесплатно.\n\n"
-        .. "По желанию: тир King of EBG на Patreon добавляет разбор на сайте.\n"
+        .. "Пять боёв за неделю открывают остальной сайт: поиск игрока,\n"
+        .. "разбор матчей, вражеские лидеры. Тоже бесплатно, без подписки.\n"
         .. "Команда /piq uploader покажет ссылку ещё раз.",
     ["UploaderURL"]    = "Скачать Uploader:\nhttps://premadeiq.duckdns.org/go",
     ["DiscordURL"]     = "Discord: https://discord.gg/KGPKRWt4MG",
@@ -366,7 +368,8 @@ local deDE = {
         .. "  2. Spiel ein episches BG und lass es hochladen\n\n"
         .. "Ein zu Ende gespieltes episches BG pro Woche hält alles offen:\n"
         .. "Premade-Hinweise, das volle Leaderboard, Deserteure. Kostenlos.\n\n"
-        .. "Optional: Die Patreon-Stufe King of EBG bringt tiefere Auswertungen.\n"
+        .. "Fünf pro Woche öffnen den Rest der Seite: Spielersuche,\n"
+        .. "Match-Analysen, feindliche Anführer. Ebenfalls kostenlos.\n"
         .. "Mit /piq uploader siehst du den Link erneut.",
     ["UploaderURL"]    = "Uploader herunterladen:\nhttps://premadeiq.duckdns.org/go",
     ["DiscordURL"]     = "Discord: https://discord.gg/KGPKRWt4MG",
@@ -469,7 +472,8 @@ local frFR = {
         .. "  2. Jouez un BG épique et laissez-le s'envoyer\n\n"
         .. "Un BG épique terminé par semaine garde tout ouvert : alertes premade,\n"
         .. "classement complet, déserteurs. Gratuit.\n\n"
-        .. "Facultatif : le palier King of EBG sur Patreon ajoute des analyses.\n"
+        .. "Cinq par semaine ouvrent le reste du site : recherche de joueur,\n"
+        .. "analyse des matchs, leaders adverses. Gratuit aussi.\n"
         .. "La commande /piq uploader réaffiche le lien.",
     ["UploaderURL"]    = "Télécharger l'Uploader :\nhttps://premadeiq.duckdns.org/go",
     ["DiscordURL"]     = "Discord : https://discord.gg/KGPKRWt4MG",
@@ -572,7 +576,8 @@ local esES = {
         .. "  2. Juega un BG épico y deja que se suba\n\n"
         .. "Un BG épico terminado por semana lo mantiene abierto: avisos de premade,\n"
         .. "clasificación completa, desertores. Gratis.\n\n"
-        .. "Opcional: el nivel King of EBG en Patreon añade más análisis.\n"
+        .. "Cinco por semana abren el resto del sitio: búsqueda de jugador,\n"
+        .. "análisis de partidas, líderes enemigos. También gratis.\n"
         .. "El comando /piq uploader vuelve a mostrar el enlace.",
     ["UploaderURL"]    = "Descargar Uploader:\nhttps://premadeiq.duckdns.org/go",
     ["DiscordURL"]     = "Discord: https://discord.gg/KGPKRWt4MG",
@@ -734,7 +739,7 @@ local itIT = {
     ["PremadeNone"]                = "Nessun capo premade noto in questa partita",
     ["Samples"]                    = "righe",
     ["UploaderURL"]                = "Download dell'Uploader:\nhttps://premadeiq.duckdns.org/go",
-    ["WelcomeBody"]                = "PremadeIQ registra le statistiche dei BG epici nei tuoi SavedVariables.\n\nGli avvisi sui premade restano muti finché non ti colleghi: l'elenco dei premade noti è un dato della comunità e arriva con l'Uploader.\n\n  1. Installa PremadeIQ Uploader (basta un account Discord — non devi entrare da nessuna parte)\n  2. Gioca un BG epico e lascialo caricare\n\nUn BG epico portato a termine a settimana tiene tutto aperto: avvisi sui premade, classifica completa, disertori. Gratis.\n\nFacoltativo: il livello King of EBG su Patreon aggiunge analisi più approfondite.\nUsa /piq uploader per rivedere il link.",
+    ["WelcomeBody"]                = "PremadeIQ registra le statistiche dei BG epici nei tuoi SavedVariables.\n\nGli avvisi sui premade restano muti finché non ti colleghi: l'elenco dei premade noti è un dato della comunità e arriva con l'Uploader.\n\n  1. Installa PremadeIQ Uploader (basta un account Discord — non devi entrare da nessuna parte)\n  2. Gioca un BG epico e lascialo caricare\n\nUn BG epico portato a termine a settimana tiene tutto aperto: avvisi sui premade, classifica completa, disertori. Gratis.\n\nCinque a settimana aprono il resto del sito: ricerca giocatore, analisi delle partite, capi nemici. Anche questo gratis.\nUsa /piq uploader per rivedere il link.",
     ["WelcomeTitle"]               = "PremadeIQ installato!",
     ["CmdHelp"]                    = "|cff33ff99PremadeIQ|r comandi:\n  /piq status           — mostra la dimensione del database\n  /piq uploader         — mostra il link di download dell'Uploader\n  /piq snapshot         — forza l'acquisizione (in campo di battaglia)\n  /piq premade          — controlla i premade noti nella squadra avversaria\n  /piq copy             — copia l'ultimo avviso premade per la chat\n  /piq debug on|off     — attiva o disattiva il debug\n  /piq reset confirm    — cancella il database\n  /piq version          — mostra la versione",
     ["Confirm reset"]              = "Vuoi davvero cancellare il database di PremadeIQ? Scrivi /piq reset confirm per procedere.",
