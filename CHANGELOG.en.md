@@ -2,6 +2,21 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.51] — 2026-09-16
+
+### Added
+- **A match now carries the odds you were shown.** At the moment the odds line
+  stops recalculating, the addon notes the percentage shown, the battle clock,
+  how many rows each side had and how many of them were found in the winrate
+  table. The note travels to the server with the match. It holds no names —
+  only numbers that were already on your screen.
+
+  Why: to check how often the percentages the addon actually shows come true,
+  and whether a head-count advantage belongs in the forecast. Today the
+  accuracy is estimated on a roster taken later, and nobody has measured it at
+  the moment you see the number. With the odds turned off nothing is noted.
+  Nothing visible in the addon changed.
+
 ## [0.9.50] — 2026-09-12
 
 ### Fixed

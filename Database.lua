@@ -190,6 +190,10 @@ function Database:IncrementMatch(info)
         -- Each row: { n = name, f = faction, g = guid stapled on at match end,
         -- s = true when the name was matched on the final board (≥ 0.9.39) }.
         baseline      = info.baseline,
+        -- The odds line as the panel froze it (addon >= 0.9.51): battle clock,
+        -- rows and known players per side, the percentage shown. nil when no
+        -- number was shown. See Collector:RecordForecast.
+        forecast      = info.forecast,
     })
     while #self.db.matchLog > MAX_MATCH_LOG do
         table.remove(self.db.matchLog, 1)

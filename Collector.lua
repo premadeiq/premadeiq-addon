@@ -308,6 +308,10 @@ local function persistActiveMatch()
         isBlitz       = ctx.isBlitz,
         isEpic        = ctx.isEpic,
         matchType     = ctx.matchType,
+        -- The frozen odds line (RecordForecast). It is usually taken during the
+        -- prep phase, before most reloads, and ctx does not survive one — so
+        -- without this every reloaded match would keep only a mid-battle record.
+        forecast      = ctx.forecast,
     }
 end
 
@@ -385,6 +389,10 @@ function Collector:RestoreContext()
     ctx.matchType     = saved.matchType
     ctx.premadeGUIDs  = ctx.premadeGUIDs or {}
     ctx.snapshots     = ctx.snapshots or {}
+    ctx.forecast      = ctx.forecast or saved.forecast
+    -- A forecast frozen from here on was frozen on a battle already running,
+    -- not on the board a player sees at the start. RecordForecast says so.
+    ctx.restored      = true
     dbg(("restored context: instance=%d startedAt=-%ds")
         :format(saved.instanceMapID, now - saved.startedAt))
     return true
@@ -539,6 +547,58 @@ end
 
 function Collector:GetMatchContext()
     return ctx
+end
+
+-- ── The frozen odds line ─────────────────────────────────────────────────
+-- Called by PremadeTargets at the moment it stops recomputing the forecast.
+-- Ships with the match so the server can see what the player actually saw:
+-- the head count on each side at that moment (the starting roster cannot say
+-- — it is taken later, and only once both sides show 38+ rows) and whether the
+-- shown percentages come true.
+--
+-- First lock of the match only: toggling the setting or a /reload can lock
+-- again, later, on a board that no longer looks like the start.
+--
+--   f            Forecast.ComputeFrom's result — the number on screen
+--   side         our team, 0 Horde / 1 Alliance
+--   reason       "stable" (the board stopped filling) | "shrink" (people left)
+--   boardUs/Them rows on each side at the lock; f's own counts describe the
+--                board the number was computed on, which on a shrink is older
+local function round1(x)
+    if type(x) ~= "number" or x ~= x then return nil end
+    return math.floor(x * 10 + 0.5) / 10
+end
+
+local function plainNumber(v)
+    if type(v) ~= "number" or (issecretvalue and issecretvalue(v)) then return nil end
+    return v
+end
+
+function Collector:RecordForecast(f, side, reason, boardUs, boardThem)
+    if not (ctx.startedAt and ctx.isEBG) or ctx.forecast ~= nil then return false end
+    if type(f) ~= "table" then return false end
+    local age = plainNumber(C_PvP and C_PvP.GetActiveMatchDuration
+                            and C_PvP.GetActiveMatchDuration())
+    local stats = PremadeIQ_PlayerStats
+    ctx.forecast = {
+        ageSec      = age and math.floor(age) or nil,   -- 0 = before the gates
+        side        = (side == 0 or side == 1) and side or nil,
+        pct         = plainNumber(f.us),
+        rowsUs      = plainNumber(f.ourN),     rowsThem  = plainNumber(f.theirN),
+        knownUs     = plainNumber(f.ourKnown), knownThem = plainNumber(f.theirKnown),
+        boardUs     = plainNumber(boardUs),    boardThem = plainNumber(boardThem),
+        wrUs        = round1(f.ourWr),         wrThem    = round1(f.theirWr),
+        reason      = (reason == "stable" or reason == "shrink") and reason or nil,
+        statsAt     = type(stats) == "table" and plainNumber(stats.generated_at) or nil,
+        afterReload = ctx.restored and true or nil,
+    }
+    persistActiveMatch()
+    dbg(("forecast frozen: %s%% age=%ss rows=%s/%s board=%s/%s reason=%s")
+        :format(tostring(ctx.forecast.pct), tostring(ctx.forecast.ageSec),
+                tostring(ctx.forecast.rowsUs), tostring(ctx.forecast.rowsThem),
+                tostring(ctx.forecast.boardUs), tostring(ctx.forecast.boardThem),
+                tostring(ctx.forecast.reason)))
+    return true
 end
 
 -- True when the CURRENT match was recognised as an Epic BG on
@@ -1118,6 +1178,10 @@ function Collector:SnapshotMatch(statsSecret)
         -- the scoreboard never demonstrably finished loading (short match,
         -- /reload mid-game, late join): absent evidence beats invented.
         baseline      = ctx.baseline,
+        -- The odds line as it was frozen (addon >= 0.9.51), see RecordForecast.
+        -- nil when no number was ever shown: setting off, too few known
+        -- players, not an Epic, or a /reload before the gates opened.
+        forecast      = ctx.forecast,
     })
 
     if ns.Deserter then ns.Deserter:Reset() end

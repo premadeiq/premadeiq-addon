@@ -64,10 +64,10 @@ local STATS_FILE_VERSION = 1
 --
 -- 45 days rather than something tighter because a still `generated_at` does not
 -- have to mean a broken Uploader: the file is only rewritten when the server's
--- content version moves, and that is derived from the newest match in the
--- database — a quiet week legitimately freezes the timestamp with everything
--- working. This catches "the Uploader has not run in a month and a half", not
--- "the owner went on holiday".
+-- content version moves, and that happens only when the table itself changed —
+-- a quiet stretch on the server legitimately freezes the timestamp with
+-- everything working. This catches "the Uploader has not run in a month and a
+-- half", not "the owner went on holiday".
 local STALE_SEC = 45 * 86400
 
 -- Is this file something to compute from? Exposed (and taking `now`) so the

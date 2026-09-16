@@ -956,6 +956,25 @@ local function sidesSeen(rows)
     return (n0 < n1) and n0 or n1
 end
 
+-- Hand the number the player now sees to the Collector, which ships it with the
+-- match (Collector:RecordForecast). Under pcall: this runs inside a scan, after
+-- `_scanning` is set and outside the scan's own pcalls, so an error here would
+-- otherwise leave every later scan blocked until /reload — a measurement aid
+-- must never cost the panel.
+function Targets:RecordFrozenForecast(rows, side, reason)
+    local collector = ns.Collector
+    if not (collector and collector.RecordForecast) then return end
+    local boardUs, boardThem
+    if side == 0 or side == 1 then
+        boardUs, boardThem = 0, 0
+        for _, row in ipairs(rows or {}) do
+            if row.faction == side then boardUs = boardUs + 1
+            elseif row.faction == 1 - side then boardThem = boardThem + 1 end
+        end
+    end
+    pcall(collector.RecordForecast, collector, self._forecast, side, reason, boardUs, boardThem)
+end
+
 function Targets:UpdateForecast(rows, side)
     if not ns.Forecast then return end
     if getSetting("forecast", true) == false then
@@ -974,9 +993,10 @@ function Targets:UpdateForecast(rows, side)
     if self._forecastLocked then return end
 
     local before = self._forecast
+    local seen, peakBefore = sidesSeen(rows), self._forecastPeakRows or 0
     local recompute, lockIfForecast, peak, stable = ns.PremadeTargetsCore.ForecastScanGate(
         self._forecastPeakRows, self._forecastStable,
-        sidesSeen(rows), self._forecast ~= nil)
+        seen, self._forecast ~= nil)
     self._forecastPeakRows, self._forecastStable = peak, stable
 
     if recompute then
@@ -991,6 +1011,7 @@ function Targets:UpdateForecast(rows, side)
     if lockIfForecast and self._forecast then
         self._forecastLocked = true
         self._signature = nil          -- the label changes, so re-render
+        self:RecordFrozenForecast(rows, side, seen < peakBefore and "shrink" or "stable")
     end
 
     -- Appearing or disappearing changes the layout, so a scan that only moved
