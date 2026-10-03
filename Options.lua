@@ -332,8 +332,12 @@ watchHint:SetWidth(290)
 watchHint:SetJustifyH("LEFT")
 watchHint:SetSpacing(2)
 
+-- One field, two buttons: Player and Guild. The widths are set in ApplyStrings
+-- from the translated labels ("Hermandad" is twice "Gilde"), and the field
+-- takes what is left of the column.
+local WATCH_ROW_W = 286
 local watchBox = CreateFrame("EditBox", nil, panel, "InputBoxTemplate")
-watchBox:SetSize(200, 20)
+watchBox:SetSize(130, 20)
 watchBox:SetPoint("TOPLEFT", watchHint, "BOTTOMLEFT", 6, -10)
 watchBox:SetAutoFocus(false)
 watchBox:SetMaxLetters(64)
@@ -341,6 +345,10 @@ watchBox:SetMaxLetters(64)
 local watchAdd = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
 watchAdd:SetSize(72, 22)
 watchAdd:SetPoint("LEFT", watchBox, "RIGHT", 8, 0)
+
+local watchAddGuild = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+watchAddGuild:SetSize(72, 22)
+watchAddGuild:SetPoint("LEFT", watchAdd, "RIGHT", 4, 0)
 
 local watchStatus = panel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
 watchStatus:SetPoint("TOPLEFT", watchBox, "BOTTOMLEFT", -6, -6)
@@ -365,10 +373,13 @@ local watchRows = {}
 
 local function watchTable()
     if type(PremadeIQ_Watch) ~= "table" then
-        PremadeIQ_Watch = { version = 1, players = {} }
+        PremadeIQ_Watch = { version = 1, players = {}, guilds = {} }
     end
     if type(PremadeIQ_Watch.players) ~= "table" then
         PremadeIQ_Watch.players = {}
+    end
+    if type(PremadeIQ_Watch.guilds) ~= "table" then
+        PremadeIQ_Watch.guilds = {}
     end
     return PremadeIQ_Watch
 end
@@ -401,7 +412,9 @@ local function watchRow(i)
     row.del:SetPoint("RIGHT", row, "RIGHT", 0, 0)
     row.del:SetScript("OnClick", function(self)
         local Core = ns.PremadeTargetsCore
-        if Core and Core.RemoveWatch(watchTable(), self.key) then
+        if not Core then return end
+        local remove = self.kind == "guild" and Core.RemoveWatchGuild or Core.RemoveWatch
+        if remove(watchTable(), self.key) then
             refreshWatch()
             watchApply()
         end
@@ -415,45 +428,77 @@ refreshWatch = function()
     if not Core then return end
     local watch = watchTable()
     local keys = Core.WatchList(watch)
+    local guildKeys = Core.WatchGuildList(watch)
+    -- Guilds first: fewer of them, and each carries a count worth seeing.
+    -- The count says whether the guild is in the data at all, which is the
+    -- only way to catch a typo before the next battleground.
+    local map = PremadeIQ_GuildMap
+    local counts = (#guildKeys > 0) and Core.GuildIndexCounts(map) or nil
+    local entries = {}
+    for _, key in ipairs(guildKeys) do
+        local e = watch.guilds[key]
+        local known = counts and Core.GuildKnownCount(map, e, counts)
+        local name, realm = e.name or key, e.realm
+        local text = "<" .. name .. ">" .. (realm and ("-" .. realm) or "")
+        if known == nil then
+            text = text .. "  |cff808080" .. L["OptWatchGuildNoData"] .. "|r"
+        else
+            local color = known > 0 and "|cff9fd89f" or "|cffff8080"
+            text = text .. "  " .. color .. L["OptWatchGuildKnown"]:format(known) .. "|r"
+        end
+        entries[#entries + 1] = { key = key, kind = "guild", text = text }
+    end
+    for _, key in ipairs(keys) do
+        entries[#entries + 1] = { key = key, kind = "player", text = key }
+    end
     local y = 0
-    for i, key in ipairs(keys) do
+    for i, e in ipairs(entries) do
         local row = watchRow(i)
-        row.key = key
-        row.del.key = key
-        row.text:SetText(key)
+        row.key = e.key
+        row.del.key = e.key
+        row.del.kind = e.kind
+        row.text:SetText(e.text)
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", watchContent, "TOPLEFT", 0, -y)
         row:Show()
         y = y + 18
     end
-    for i = #keys + 1, #watchRows do
+    for i = #entries + 1, #watchRows do
         watchRows[i]:Hide()
     end
     watchContent:SetHeight(math.max(y, 1))
-    watchStatus:SetText(("%s: |cffffffff%d|r / %d"):format(
-        L["OptWatchCount"], #keys, Core.WATCH_MAX))
+    watchStatus:SetText(("%s: |cffffffff%d|r / %d, %s: |cffffffff%d|r / %d"):format(
+        L["OptWatchCount"], #keys, Core.WATCH_MAX,
+        L["OptWatchGuilds"], #guildKeys, Core.GUILD_WATCH_MAX))
 end
 
-local function watchSubmit()
+local function watchSubmit(kind)
     local Core = ns.PremadeTargetsCore
     if not Core then return end
-    local realm = GetNormalizedRealmName and GetNormalizedRealmName() or nil
-    local ok, info = Core.AddWatch(watchTable(), watchBox:GetText(), realm)
+    local ok, info
+    if kind == "guild" then
+        ok, info = Core.AddWatchGuild(watchTable(), watchBox:GetText())
+    else
+        local realm = GetNormalizedRealmName and GetNormalizedRealmName() or nil
+        ok, info = Core.AddWatch(watchTable(), watchBox:GetText(), realm)
+    end
     if ok then
         watchBox:SetText("")
         refreshWatch()
         watchApply()
     else
         local msg = (info == "duplicate" and L["OptWatchDuplicate"])
-                 or (info == "full" and L["OptWatchFull"])
-                 or L["OptWatchBadName"]
+                 or (info == "full" and (kind == "guild" and L["OptWatchGuildFull"] or L["OptWatchFull"]))
+                 or (kind == "guild" and L["OptWatchBadGuild"] or L["OptWatchBadName"])
         watchStatus:SetText("|cffff8080" .. msg .. "|r")
     end
     watchBox:ClearFocus()
 end
 
-watchAdd:SetScript("OnClick", watchSubmit)
-watchBox:SetScript("OnEnterPressed", watchSubmit)
+watchAdd:SetScript("OnClick", function() watchSubmit("player") end)
+watchAddGuild:SetScript("OnClick", function() watchSubmit("guild") end)
+-- Enter keeps meaning "add a player", as it always has.
+watchBox:SetScript("OnEnterPressed", function() watchSubmit("player") end)
 watchBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 
 -- Every visible string, applied from the CURRENT language.
@@ -477,6 +522,16 @@ function panel:ApplyStrings()
     watchHeader:SetText(L["OptWatchHeader"])
     watchHint:SetText(L["OptWatchHint"])
     watchAdd:SetText(L["OptWatchAdd"])
+    watchAddGuild:SetText(L["OptWatchAddGuild"])
+    -- Buttons fit their labels; the field gets the rest of the column.
+    local function fit(button)
+        local fs = button.GetFontString and button:GetFontString()
+        local w = fs and fs.GetStringWidth and fs:GetStringWidth() or 0
+        button:SetWidth(math.max(64, math.ceil(w) + 24))
+        return button:GetWidth()
+    end
+    local used = fit(watchAdd) + fit(watchAddGuild) + 8 + 4
+    watchBox:SetWidth(math.max(110, WATCH_ROW_W - used - 6))
     cbDebug.tooltipText = L["OptDebugTooltip"]
     cbPremade.tooltipText = L["OptPremadeAlertTooltip"]
     cbPremadeSound.tooltipText = L["OptPremadeSoundTooltip"]

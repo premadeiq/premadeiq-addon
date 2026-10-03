@@ -2,6 +2,52 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.53] — 2026-10-04
+
+### Added
+- **Guilds on your watchlist.** The settings now have two buttons next to the
+  input field: Player and Guild. A guild can be given by name (`Top Gun`) or
+  with its realm (`Top Gun-Ravencrest`) — guild names repeat across realms,
+  and the realm makes the match exact. In battle, players from watched guilds
+  appear in the Tracked players panel in their own `<Guild> (N)` block after
+  the premade blocks; anyone who is in a premade stays in the premade's block,
+  with the guild in the tooltip.
+
+  The scoreboard carries no guilds, so PremadeIQ Uploader 0.9.12 brings them:
+  a "character → guild" file for the players the database has seen. Each
+  guild in the list shows how many of its players are known, so you can see
+  at once whether it was found. A player the database has never seen will not
+  show up. The list itself still lives only on this computer and is never
+  sent anywhere.
+
+## [0.9.52] — 2026-10-04
+
+### Changed
+- **The Tracked players panel splits players by premade.** Everyone tracked on
+  a side used to share one grid, and how many belonged to which premade was
+  only in the tooltips. Now each premade gets its own block with a heading —
+  whose premade it is and how many of them are on the field — biggest first,
+  leader on top. A lone member gets a block too: members of different
+  premades often queue without their leader, and you can see who is whose.
+  Possible members (?) sit in the block of the premade they are linked to and
+  keep their question mark. Raid leads (~) and players from your own
+  watchlist (>) with no premade are gathered at the bottom under "Others". A
+  player listed in two premades sits in the one with more people in the
+  match; the other stays in the tooltip.
+- **A more compact panel.** Buttons show names without the realm (it is in the
+  tooltip, and stays on the button when two players share a name; targeting by
+  click is unchanged), so columns are about half as wide. When a side has
+  premade blocks, the separate "Enemy team / Your team" line is gone: the
+  colour of the block headings tells the side and the panel header has the
+  counts.
+
+### Fixed
+- **The odds line no longer runs past the panel's edge.** The panel's width
+  came from the name buttons alone, so with two or three players the long odds
+  line (translations especially) spilled past the right border. The panel now
+  reserves room for the widest odds line up front — before the fighting starts,
+  because a panel full of target buttons cannot be resized in combat.
+
 ## [0.9.51] — 2026-09-16
 
 ### Added

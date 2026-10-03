@@ -46,6 +46,7 @@ STUB = (
 FORBIDDEN_PATH = "PremadeIQ_Leader"
 KP_NAME = "KnownPremades.lua"
 US_NAME = "UploadState.lua"
+GM_NAME = "GuildMap.lua"
 
 
 def kp_violation(text: str) -> str | None:
@@ -72,6 +73,18 @@ def us_violation(text: str) -> str | None:
     cursors — those carry installIds derived from realm + character GUID."""
     if "samplesUploadedThrough" in text:
         return "live upload cursor (samplesUploadedThrough present)"
+    return None
+
+
+def gm_violation(text: str) -> str | None:
+    """GuildMap.lua must ship empty: the live file maps every character the
+    database has seen to their guild, data the server gates behind CONTRIBUTOR.
+    The owner's Uploader writes it straight into the repo working tree (the game
+    folder is a junction), so this is the check that catches a slip."""
+    if re.search(r"generated_at\s*=\s*(?!0\b)\d+", text):
+        return "live guild map (generated_at != 0)"
+    if re.search(r"\]\s*=\s*(\{\s*name|\d)", text):
+        return "live guild map (entries present)"
     return None
 
 
@@ -165,6 +178,10 @@ def scan_tree(root: Path) -> list[str]:
             why = us_violation(p.read_text(encoding="utf-8", errors="replace"))
             if why:
                 problems.append(f"{rel}: {why}")
+        elif p.name == GM_NAME:
+            why = gm_violation(p.read_text(encoding="utf-8", errors="replace"))
+            if why:
+                problems.append(f"{rel}: {why}")
         elif _is_text(p.name) and not _skip_content(rel):
             why = content_violation(p.read_text(encoding="utf-8", errors="replace"))
             if why:
@@ -186,6 +203,10 @@ def scan_zip(z: Path) -> list[str]:
                     problems.append(f"{z.name}!{name}: {why}")
             elif base == US_NAME:
                 why = us_violation(zf.read(name).decode("utf-8", errors="replace"))
+                if why:
+                    problems.append(f"{z.name}!{name}: {why}")
+            elif base == GM_NAME:
+                why = gm_violation(zf.read(name).decode("utf-8", errors="replace"))
                 if why:
                     problems.append(f"{z.name}!{name}: {why}")
             elif _is_text(base) and not _skip_content(name):

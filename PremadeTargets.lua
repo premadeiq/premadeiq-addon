@@ -25,6 +25,9 @@ local Targets = {
     -- exactly its old geometry.
     ODDS_HEIGHT = 16,
     SECTION_GAP = 6,
+    -- Per-premade headings inside a section (Core.AssignBlocks).
+    BLOCK_HEADER_HEIGHT = 14,
+    BLOCK_GAP = 4,
     MIN_SCALE = 0.70,
     MAX_SCALE = 1.50,
     SCALE_STEP = 0.05,
@@ -42,6 +45,7 @@ local Targets = {
     STARTUP_BURST = { 0.5, 1.5, 3, 6, 10 },
     _buttons = {},
     _sectionHeaders = {},
+    _blockHeaders = {},
     _signature = "",
     _lastScanAt = 0,
     _lastRequestAt = 0,
@@ -127,6 +131,18 @@ local RAID_LEAD_MARK = "~ "
 -- exactly the claim — we are asking, not telling.
 local LIKELY_MARK = "? "
 
+-- The name without its realm. Buttons show this: the realm doubled the width
+-- of every column for nothing the player acts on, and it is still in the
+-- tooltip. Targeting is unaffected — the macro keeps the full name.
+local function shortName(name)
+    return (type(name) == "string" and name:match("^([^%-]+)%-")) or name
+end
+
+-- Short names that more than one listed player shares this scan. Those keep
+-- their realm on the button, or two identical plates would be told apart only
+-- by hovering. Rebuilt by ApplyPlayers before anything is measured or drawn.
+local nameClash = {}
+
 local function labelText(player)
     -- One mark, strongest claim first. A raid leader who is ALSO a known premade
     -- member is a member here: that is the stronger statement, and the tilde
@@ -137,9 +153,11 @@ local function labelText(player)
               -- Below a confirmed member and below an owner-made raid-lead
               -- mark: both of those are things we know, this one is a maybe.
               or (player.isLikely and not inPremade and LIKELY_MARK)
-              or (player.isWatched and not player.inCatalog and WATCH_MARK)
+              or ((player.isWatched or player.watchGuild) and not player.inCatalog and WATCH_MARK)
               or ""
-    return mark .. displayName(player.name)
+    local name = displayName(player.name)
+    local short = shortName(name)
+    return mark .. (nameClash[short] and name or short)
 end
 
 local function copyPlayers(players)
@@ -268,16 +286,21 @@ local function showTooltip(button)
         caption = L["PremadeTargetRaidLead"]
     elseif player.isLikely then
         caption = L["PremadeTargetLikely"]
-    else
+    elseif player.isWatched then
         caption = L["PremadeTargetWatched"]
+    else
+        caption = L["PremadeTargetWatchedGuild"]
     end
     GameTooltip:AddLine(caption, 1, 0.82, 0)
     -- Secondary facts, only when they are not already the caption.
     if player.isRaidLead and (player.isLeader or inPremade) then
         GameTooltip:AddLine(L["PremadeTargetRaidLeadAlso"], 0.8, 0.8, 0.8)
     end
-    if player.isWatched and (player.isLeader or inPremade or player.isRaidLead) then
+    if player.isWatched and (player.isLeader or inPremade or player.isRaidLead or player.isLikely) then
         GameTooltip:AddLine(L["PremadeTargetWatched"], 0.75, 0.9, 0.75)
+    end
+    if player.watchGuild then
+        GameTooltip:AddLine(L["PremadeTargetGuild"] .. ": <" .. player.watchGuild .. ">", 0.75, 0.9, 0.75)
     end
     if player.side == "ally" then
         GameTooltip:AddLine(L["PremadeTargetSideAlly"], 0.55, 0.75, 1)
@@ -669,8 +692,8 @@ function Targets:ApplyScale()
     return true
 end
 
--- Column width is measured, not assumed: `displayName` keeps the realm suffix,
--- and a name like Mæhælænæbæs-TwistingNether is far wider than the old fixed
+-- Column width is measured, not assumed: a clashing name keeps its realm
+-- suffix, and Mæhælænæbæs-TwistingNether is far wider than the old fixed
 -- 152px plate, which silently truncated it with an ellipsis.
 function Targets:MeasureButtonWidth(players)
     local width = self.MIN_BUTTON_WIDTH
@@ -695,6 +718,57 @@ local function splitSections(players)
         list[#list + 1] = player
     end
     return grouped
+end
+
+-- Consecutive players sharing a block, in list order. FilterRoster sorts each
+-- block together, so a block never comes back split in two.
+local function splitBlocks(list)
+    local runs = {}
+    for _, player in ipairs(list) do
+        local last = runs[#runs]
+        if last and last.block == player.block and last.kind == player.blockKind then
+            last.players[#last.players + 1] = player
+        else
+            runs[#runs + 1] = { block = player.block, kind = player.blockKind, players = { player } }
+        end
+    end
+    return runs
+end
+
+-- Block headings are plain FontStrings, made on first use: how many a match
+-- needs is not known up front, and unlike the buttons they are not secure.
+function Targets:BlockHeader(i)
+    local header = self._blockHeaders[i]
+    if not header then
+        header = self._body:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        header:SetJustifyH("LEFT")
+        if header.SetWordWrap then header:SetWordWrap(false) end
+        self._blockHeaders[i] = header
+    end
+    return header
+end
+
+function Targets:FillButton(button, player, width, x, y)
+    local secureName = targetName(player.name)
+    local macro = Core.TargetMacro(secureName)
+    local focusMacro = Core.FocusMacro(secureName)
+    button:SetSize(width, self.BUTTON_HEIGHT)
+    button:ClearAllPoints()
+    button:SetPoint("TOPLEFT", self._body, "TOPLEFT", x, -y)
+    button:SetAttribute("type1", macro and "macro" or nil)
+    button:SetAttribute("macrotext1", macro)
+    button:SetAttribute("type2", focusMacro and "macro" or nil)
+    button:SetAttribute("macrotext2", focusMacro)
+    button.playerInfo = player
+    applyIdleStyle(button)
+    button.label:SetText(labelText(player))
+    local color = player.classToken and RAID_CLASS_COLORS and RAID_CLASS_COLORS[player.classToken]
+    if color then
+        button.label:SetTextColor(color.r, color.g, color.b)
+    else
+        button.label:SetTextColor(0.92, 0.92, 0.92)
+    end
+    button:Show()
 end
 
 function Targets:ApplyPlayers(players)
@@ -736,6 +810,13 @@ function Targets:ApplyPlayers(players)
 
     local count = math.min(#players, self.MAX_BUTTONS)
     local grouped = splitSections(players)
+    local seenShort = {}
+    nameClash = {}
+    for _, player in ipairs(players) do
+        local short = shortName(displayName(player.name))
+        if seenShort[short] then nameClash[short] = true end
+        seenShort[short] = true
+    end
     local columns = self:ColumnSetting()
     local buttonWidth = self:MeasureButtonWidth(players)
     local index = 0
@@ -743,11 +824,24 @@ function Targets:ApplyPlayers(players)
     local y = self.HEADER_HEIGHT + self.PANEL_PADDING
     if self._forecast then y = y + self.ODDS_HEIGHT end
 
+    local blockIndex = 0
     for _, side in ipairs(SECTIONS) do
         local list = grouped[side]
         local sectionHeader = self._sectionHeaders[side]
+        -- One grid per premade block (FilterRoster already sorted each block
+        -- together, biggest first), headed by whose premade it is and how
+        -- many of them are here. A side with no block at all keeps the
+        -- single grid and no extra headings.
+        local runs = #list > 0 and splitBlocks(list) or {}
+        local headed = #runs > 1 or (runs[1] ~= nil and runs[1].block ~= nil)
         if #list > 0 and index < self.MAX_BUTTONS then
-            if sectionHeader then
+            -- With block headings the section line is dropped: the headings
+            -- carry the side's colour, and the panel header already has the
+            -- counts. It stays for a side with no blocks, which has nothing
+            -- else to say which team this is.
+            if headed then
+                if sectionHeader then sectionHeader:Hide() end
+            elseif sectionHeader then
                 sectionHeader:ClearAllPoints()
                 sectionHeader:SetPoint("TOPLEFT", self._body, "TOPLEFT", self.PANEL_PADDING, -y)
                 if side == "ally" then
@@ -757,49 +851,60 @@ function Targets:ApplyPlayers(players)
                 end
                 sectionHeader:Show()
             end
-            y = y + self.SECTION_HEADER_HEIGHT
+            if not headed then y = y + self.SECTION_HEADER_HEIGHT end
 
-            local layout, usedColumns, rows = Core.ComputeLayout(#list, columns)
-            if usedColumns > widestColumns then widestColumns = usedColumns end
-            for i, player in ipairs(list) do
-                index = index + 1
-                local button = self._buttons[index]
-                if button then
-                    local secureName = targetName(player.name)
-                    local macro = Core.TargetMacro(secureName)
-                    local focusMacro = Core.FocusMacro(secureName)
-                    local pos = layout[i]
-                    button:SetSize(buttonWidth, self.BUTTON_HEIGHT)
-                    button:ClearAllPoints()
-                    button:SetPoint(
-                        "TOPLEFT",
-                        self._body,
-                        "TOPLEFT",
-                        self.PANEL_PADDING + (pos.column - 1) * (buttonWidth + self.BUTTON_GAP),
-                        -(y + (pos.row - 1) * (self.BUTTON_HEIGHT + self.BUTTON_GAP))
-                    )
-                    button:SetAttribute("type1", macro and "macro" or nil)
-                    button:SetAttribute("macrotext1", macro)
-                    button:SetAttribute("type2", focusMacro and "macro" or nil)
-                    button:SetAttribute("macrotext2", focusMacro)
-                    button.playerInfo = player
-                    applyIdleStyle(button)
-                    button.label:SetText(labelText(player))
-                    local color = player.classToken and RAID_CLASS_COLORS and RAID_CLASS_COLORS[player.classToken]
-                    if color then
-                        button.label:SetTextColor(color.r, color.g, color.b)
+            local ally = side == "ally"
+            for r, run in ipairs(runs) do
+                if r > 1 then y = y + self.BLOCK_GAP end
+                if headed then
+                    blockIndex = blockIndex + 1
+                    local blockHeader = self:BlockHeader(blockIndex)
+                    blockHeader:ClearAllPoints()
+                    blockHeader:SetPoint("TOPLEFT", self._body, "TOPLEFT", self.PANEL_PADDING + 2, -y)
+                    if run.kind == "guild" then
+                        -- A guild name is not a character name: no Ambiguate,
+                        -- no realm to strip.
+                        blockHeader:SetText(L["PremadeTargetsGuildBlock"]:format(run.block, #run.players))
+                    elseif run.block then
+                        blockHeader:SetText(L["PremadeTargetsBlock"]:format(shortName(displayName(run.block)), #run.players))
                     else
-                        button.label:SetTextColor(0.92, 0.92, 0.92)
+                        blockHeader:SetText(L["PremadeTargetsBlockRest"]:format(#run.players))
                     end
-                    button:Show()
+                    -- Side colours of the section line it replaces; the rest
+                    -- are dimmer, being nobody's premade.
+                    local k = run.block and 1 or 0.7
+                    if ally then
+                        blockHeader:SetTextColor(0.55 * k, 0.75 * k, 1 * k)
+                    else
+                        blockHeader:SetTextColor(1 * k, 0.62 * k, 0.52 * k)
+                    end
+                    blockHeader:Show()
+                    y = y + self.BLOCK_HEADER_HEIGHT
                 end
+
+                local layout, usedColumns, rows = Core.ComputeLayout(#run.players, columns)
+                if usedColumns > widestColumns then widestColumns = usedColumns end
+                for i, player in ipairs(run.players) do
+                    index = index + 1
+                    local button = self._buttons[index]
+                    if button then
+                        local pos = layout[i]
+                        self:FillButton(button, player, buttonWidth,
+                            self.PANEL_PADDING + (pos.column - 1) * (buttonWidth + self.BUTTON_GAP),
+                            y + (pos.row - 1) * (self.BUTTON_HEIGHT + self.BUTTON_GAP))
+                    end
+                end
+                y = y + rows * self.BUTTON_HEIGHT
+                    + math.max(0, rows - 1) * self.BUTTON_GAP
             end
-            y = y + rows * self.BUTTON_HEIGHT
-                + math.max(0, rows - 1) * self.BUTTON_GAP
-                + self.SECTION_GAP
+            y = y + self.SECTION_GAP
         elseif sectionHeader then
             sectionHeader:Hide()
         end
+    end
+
+    for i = blockIndex + 1, #self._blockHeaders do
+        self._blockHeaders[i]:Hide()
     end
 
     for i = index + 1, #self._buttons do
@@ -831,7 +936,8 @@ function Targets:ApplyPlayers(players)
             self.PANEL_PADDING * 2
                 + widestColumns * buttonWidth
                 + math.max(0, widestColumns - 1) * self.BUTTON_GAP,
-            self.MIN_PANEL_WIDTH
+            self.MIN_PANEL_WIDTH,
+            self:OddsWidth()
         )
         self._panel:SetSize(width, y - self.SECTION_GAP + self.PANEL_PADDING)
     else
@@ -841,7 +947,7 @@ function Targets:ApplyPlayers(players)
         -- no odds line at all, so the space is not reserved either.
         local height = self.HEADER_HEIGHT + self.PANEL_PADDING
         if self:OddsLineVisible() then height = height + self.ODDS_HEIGHT end
-        self._panel:SetSize(self.MIN_PANEL_WIDTH, height)
+        self._panel:SetSize(math.max(self.MIN_PANEL_WIDTH, self:OddsWidth()), height)
     end
     self:RenderHeader()
     self:RenderOdds()
@@ -898,6 +1004,24 @@ end
 function Targets:OddsLineVisible()
     if self._forecast then return true end
     return (ns.IsEpicBGNow and ns.IsEpicBGNow()) and true or false
+end
+
+-- Room the odds line needs, so it never runs past the panel's edge — the
+-- translated lines are wider than the English one. Measured on the widest
+-- numbers the line can hold, not the current ones: the text changes during
+-- combat, when resizing a panel full of secure buttons is not allowed, so the
+-- width has to be right before the fighting starts.
+function Targets:OddsWidth()
+    local ruler = self._measure
+    if not self:OddsLineVisible() or not ruler or not ruler.GetStringWidth then return 0 end
+    local widest = 0
+    for _, key in ipairs({ "ForecastPanelWorking", "ForecastPanelDone", "ForecastPending" }) do
+        local ok, text = pcall(string.format, L[key], 100, 100, 100, 100, 100, 100)
+        ruler:SetText(ok and text or L[key])
+        local w = ruler:GetStringWidth()
+        if type(w) == "number" and w > widest then widest = w end
+    end
+    return math.ceil(widest) + self.PANEL_PADDING * 2 + 4
 end
 
 function Targets:RenderOdds()
@@ -1066,6 +1190,15 @@ function Targets:WatchIndex(realm)
     return Core.WatchIndex(watch, realm)
 end
 
+-- Rebuilt every scan like WatchIndex, and for the same reason: an edit to the
+-- list has to show up without any cache to invalidate. Cheap — at most
+-- GUILD_WATCH_MAX entries; the map itself is only ever indexed by key.
+function Targets:GuildMatcher()
+    local watch = type(PremadeIQ_Watch) == "table" and PremadeIQ_Watch or nil
+    if not watch then return nil end
+    return Core.GuildMatcher(watch, PremadeIQ_GuildMap)
+end
+
 -- `requestData` asks the server for a fresh scoreboard; without it we only read
 -- the cache the client already holds. The UPDATE_BATTLEFIELD_SCORE handler
 -- consumes without requesting, so a response can never be swallowed by the
@@ -1131,7 +1264,7 @@ function Targets:RefreshFromScoreboard(force, requestData)
     local players
     ok, players = pcall(
         Core.FilterRoster, rows, catalogIndex, currentSide(), realm,
-        ownCanonicalName(realm), self:WatchIndex(realm)
+        ownCanonicalName(realm), self:WatchIndex(realm), self:GuildMatcher()
     )
     self._scanning = false
     if not ok then return false end

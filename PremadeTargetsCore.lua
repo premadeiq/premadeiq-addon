@@ -127,6 +127,149 @@ function Core.WatchList(watch)
     return out
 end
 
+-- ── Watched guilds ───────────────────────────────────────────────────────
+-- The scoreboard carries no guild, so a guild is matched through
+-- PremadeIQ_GuildMap: a character -> guild table the Uploader writes into the
+-- addon folder (GuildMap.lua). The list of WATCHED guilds lives next to the
+-- watched players, in PremadeIQ_Watch.guilds, and never leaves this computer.
+--
+-- Guild names repeat across realms, so an entry may carry the guild's realm
+-- ("Top Gun-Ravencrest"). Guild names cannot contain a hyphen, realms can
+-- (Azjol-Nerub), hence the split on the FIRST one. Matching ignores ASCII case
+-- only: string.lower is byte-wise, which leaves UTF-8 alone.
+Core.GUILD_WATCH_MAX = 50
+Core.GUILD_MAP_VERSION = 1
+
+local function fold(s) return (s or ""):lower() end
+
+-- Returns (key, name, realm) or (nil, reason). `realm` is nil when not given.
+function Core.NormalizeGuildInput(raw)
+    if type(raw) ~= "string" then return nil, "empty" end
+    local s = raw:gsub("[\r\n\t]", " "):gsub("|%a", ""):gsub("|", "")
+    -- The game shows a guild as <Name>; take it with or without the brackets.
+    s = s:gsub("[<>]", "")
+    s = s:gsub("^%s+", ""):gsub("%s+$", "")
+    if s == "" then return nil, "empty" end
+    local name, realm = s:match("^(.-)%-(.*)$")
+    if not name then name = s end
+    name = name:gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
+    if realm then
+        realm = realm:gsub("%s", "")
+        if realm == "" then return nil, "malformed" end
+    end
+    if name == "" then return nil, "malformed" end
+    local key = realm and (name .. "-" .. realm) or name
+    return key, name, realm
+end
+
+function Core.AddWatchGuild(watch, raw)
+    if type(watch) ~= "table" then return false, "empty" end
+    watch.guilds = type(watch.guilds) == "table" and watch.guilds or {}
+    local key, name, realm = Core.NormalizeGuildInput(raw)
+    if not key then return false, name end
+    local n = 0
+    for k in pairs(watch.guilds) do
+        if fold(k) == fold(key) then return false, "duplicate" end
+        n = n + 1
+    end
+    if n >= Core.GUILD_WATCH_MAX then return false, "full" end
+    watch.guilds[key] = { name = name, realm = realm }
+    return true, key
+end
+
+function Core.RemoveWatchGuild(watch, key)
+    local guilds = type(watch) == "table" and watch.guilds or nil
+    if type(guilds) ~= "table" or key == nil or guilds[key] == nil then return false end
+    guilds[key] = nil
+    return true
+end
+
+function Core.WatchGuildList(watch)
+    local guilds = type(watch) == "table" and watch.guilds or nil
+    local out = {}
+    if type(guilds) ~= "table" then return out end
+    for key in pairs(guilds) do out[#out + 1] = key end
+    table.sort(out, function(a, b) return fold(a) < fold(b) end)
+    return out
+end
+
+local function usableMap(map)
+    return type(map) == "table" and map.version == Core.GUILD_MAP_VERSION
+        and type(map.guilds) == "table" and type(map.players) == "table"
+end
+
+-- The guild record ({ name, realm? }) of one scoreboard key, or nil.
+function Core.GuildOf(map, key)
+    if not usableMap(map) or type(key) ~= "string" then return nil end
+    local short, realm = key:match("^([^%-]+)%-(.+)$")
+    if not short then return nil end
+    local byRealm = map.players[realm]
+    local idx = type(byRealm) == "table" and byRealm[short] or nil
+    local g = idx and map.guilds[idx]
+    return type(g) == "table" and type(g.name) == "string" and g or nil
+end
+
+-- Does a watch entry ({ name, realm? }) cover this guild record? An entry
+-- without a realm takes the name on any realm. A guild whose realm the server
+-- does not know yet (it fills in over a few days) is matched on the name too —
+-- better a same-named stranger in the panel than a watched guild missing.
+local function entryCovers(entry, g)
+    if fold(entry.name) ~= fold(g.name) then return false end
+    if not entry.realm or not g.realm then return true end
+    return fold(entry.realm) == fold(g.realm)
+end
+
+-- Function(key) -> guild name, or nil when nothing is watched or there is no
+-- map. Built per scan: the watch list is at most GUILD_WATCH_MAX entries, and
+-- each lookup is one table walk from the scoreboard key, never a pass over the
+-- ~23k-entry map.
+function Core.GuildMatcher(watch, map)
+    local guilds = type(watch) == "table" and watch.guilds or nil
+    if type(guilds) ~= "table" or not next(guilds) or not usableMap(map) then return nil end
+    local entries = {}
+    for _, e in pairs(guilds) do
+        if type(e) == "table" and type(e.name) == "string" then entries[#entries + 1] = e end
+    end
+    if #entries == 0 then return nil end
+    return function(key)
+        local g = Core.GuildOf(map, key)
+        if not g then return nil end
+        for _, e in ipairs(entries) do
+            if entryCovers(e, g) then return g.name end
+        end
+        return nil
+    end
+end
+
+-- Characters per guild index. One pass over the whole map: compute it once per
+-- options refresh, never per scan.
+function Core.GuildIndexCounts(map)
+    if not usableMap(map) then return nil end
+    local counts = {}
+    for _, byRealm in pairs(map.players) do
+        if type(byRealm) == "table" then
+            for _, idx in pairs(byRealm) do
+                counts[idx] = (counts[idx] or 0) + 1
+            end
+        end
+    end
+    return counts
+end
+
+-- How many characters the map knows for one watch entry — the options list
+-- shows it, so a typo or an unknown guild is visible right away. nil = no map.
+function Core.GuildKnownCount(map, entry, counts)
+    if not usableMap(map) or type(entry) ~= "table" then return nil end
+    counts = counts or Core.GuildIndexCounts(map)
+    local n = 0
+    for i, g in pairs(map.guilds) do
+        if type(g) == "table" and type(g.name) == "string" and entryCovers(entry, g) then
+            n = n + (counts[i] or 0)
+        end
+    end
+    return n
+end
+
 local function addGroup(entry, groupId, label)
     if groupId == nil or not validName(label) or entry._groupSet[groupId] then return end
     entry._groupSet[groupId] = true
@@ -263,8 +406,9 @@ end
 --
 -- `watchIndex` is the owner's PERSONAL list (Core.WatchIndex): a second,
 -- independent reason for a row to appear, carrying no claim about premades.
+-- `guildMatch` (Core.GuildMatcher) is a third: key -> watched guild name.
 function Core.FilterRoster(rows, catalogIndex, mySide, realm, myCanonicalName,
-                           watchIndex)
+                           watchIndex, guildMatch)
     local players, seen = {}, {}
     if type(rows) ~= "table" or type(catalogIndex) ~= "table" then return players end
     if mySide == nil then return players end
@@ -278,8 +422,10 @@ function Core.FilterRoster(rows, catalogIndex, mySide, realm, myCanonicalName,
             -- nothing else about must not inherit "premade member" from anyone.
             local watched = (key ~= nil and type(watchIndex) == "table"
                              and watchIndex[key]) and true or false
+            local watchGuild = (key ~= nil and type(guildMatch) == "function")
+                               and guildMatch(key) or nil
             local sideKnown = row.faction ~= nil
-            if (catalogEntry or watched) and sideKnown and key
+            if (catalogEntry or watched or watchGuild) and sideKnown and key
                     and not seen[key] and key ~= myCanonicalName then
                 seen[key] = true
                 players[#players + 1] = {
@@ -297,6 +443,8 @@ function Core.FilterRoster(rows, catalogIndex, mySide, realm, myCanonicalName,
                     isLikely = (catalogEntry and catalogEntry.isLikely) and true or false,
                     likelyGroups = catalogEntry and catalogEntry.likelyGroups or nil,
                     isWatched = watched,
+                    -- In a guild on the owner's list: the guild's name.
+                    watchGuild = watchGuild,
                     -- Marked "takes raid lead, runs no premade". Independent of
                     -- the premade fields above and never a substitute for them:
                     -- the same person is often both.
@@ -309,16 +457,94 @@ function Core.FilterRoster(rows, catalogIndex, mySide, realm, myCanonicalName,
         end
     end
 
-    -- Enemies first (the side you act on), then your own team; leaders head each
-    -- section, the rest stay alphabetical so the grid does not reshuffle between
-    -- scans.
+    Core.AssignBlocks(players)
+
+    -- Enemies first (the side you act on), then your own team. Inside a side,
+    -- each premade sits together as a block, biggest first, then the watched
+    -- guilds; everyone outside a block comes last. Leaders head their block,
+    -- maybes close it, the rest stay alphabetical so the grid does not
+    -- reshuffle between scans.
+    local KIND_RANK = { premade = 1, guild = 2 }
     table.sort(players, function(a, b)
         if a.side ~= b.side then return a.side == "enemy" end
+        local ra, rb = KIND_RANK[a.blockKind] or 3, KIND_RANK[b.blockKind] or 3
+        if ra ~= rb then return ra < rb end
+        if a.block ~= b.block then
+            if a.blockSize ~= b.blockSize then return a.blockSize > b.blockSize end
+            return a.block < b.block
+        end
         if a.isLeader ~= b.isLeader then return a.isLeader end
+        -- Confirmed members before the maybes sharing their block.
+        if a.isLikely ~= b.isLikely then return b.isLikely end
         return a.canonicalName < b.canonicalName
     end)
     return players
 end
+
+-- ── Premade blocks ───────────────────────────────────────────────────────
+-- The panel splits each side into one block per premade, so "how many of them
+-- are here" reads off the screen instead of out of thirty tooltips. That holds
+-- for one person too: members of different premades often queue without their
+-- leader, and which premade each of them belongs to is the point.
+--
+-- A confirmed member is placed by their confirmed `groups`; a "likely" member
+-- (no confirmed group) by their `likelyGroups`, keeping the "?" mark on the
+-- button — the heading says whose premade, the mark says the link is unproven.
+-- Everyone with neither (raid leads, watchlist-only rows) lands in the rest.
+--
+-- Someone tied to TWO premades goes to the one with more people on their side
+-- right now: that is almost always the group they actually queued with. Ties go
+-- to the alphabetically first label, so the choice is stable between scans.
+--
+-- Someone outside every premade but in a WATCHED guild gets that guild's block
+-- (`blockKind = "guild"`). Premade first: who queued with whom is the panel's
+-- main signal, and a guild says less about this match than a premade does.
+--
+-- Sets `block` (label or nil), `blockKind` ("premade" | "guild" | nil) and
+-- `blockSize` on every player.
+local function blockLabels(p)
+    if p.groups and #p.groups > 0 then return p.groups end
+    return p.likelyGroups or {}
+end
+
+function Core.AssignBlocks(players)
+    if type(players) ~= "table" then return players end
+
+    -- How many players on each side are tied to each label, either way.
+    local counts = { enemy = {}, ally = {} }
+    for _, p in ipairs(players) do
+        local c = counts[p.side == "ally" and "ally" or "enemy"]
+        for _, label in ipairs(blockLabels(p)) do
+            c[label] = (c[label] or 0) + 1
+        end
+    end
+
+    local sizes = { enemy = {}, ally = {} }
+    for _, p in ipairs(players) do
+        local side = p.side == "ally" and "ally" or "enemy"
+        local best, bestCount = nil, 0
+        for _, label in ipairs(blockLabels(p)) do
+            local n = counts[side][label] or 0
+            if n > bestCount or (n == bestCount and label < best) then
+                best, bestCount = label, n
+            end
+        end
+        p.block, p.blockKind = best, best and "premade" or nil
+        if not best and p.watchGuild then
+            p.block, p.blockKind = p.watchGuild, "guild"
+        end
+        if p.block then
+            local k = p.blockKind .. "\30" .. p.block
+            sizes[side][k] = (sizes[side][k] or 0) + 1
+        end
+    end
+    for _, p in ipairs(players) do
+        local side = p.side == "ally" and "ally" or "enemy"
+        p.blockSize = p.block and sizes[side][p.blockKind .. "\30" .. p.block] or 0
+    end
+    return players
+end
+
 
 function Core.TargetMacro(targetName)
     if not validName(targetName) then return nil end
@@ -364,6 +590,10 @@ function Core.PlayerSignature(players)
                    .. "\30" .. (player.isWatched and "w" or "")
                    .. "\30" .. (player.isRaidLead and "r" or "")
                    .. "\30" .. (player.isLikely and "l" or "")
+                   -- The block decides where the button sits, so a player
+                   -- moving between blocks is a changed layout too.
+                   .. "\30" .. tostring(player.block or "")
+                   .. "\30" .. tostring(player.blockKind or "")
     end
     return table.concat(parts, "\31")
 end
