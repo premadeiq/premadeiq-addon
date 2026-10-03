@@ -2,6 +2,15 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.54] — 2026-10-04
+
+### Fixed
+- **The Local database block in the settings now switches language with the
+  rest of the panel.** Changing the language with the settings open used to
+  leave the player, sample and match counts in the old language until the
+  panel was reopened. The same happened to the "In your list" line under the
+  watchlist field and the "known: N" notes next to guilds.
+
 ## [0.9.53] — 2026-10-04
 
 ### Added

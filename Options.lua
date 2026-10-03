@@ -508,6 +508,21 @@ watchBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 -- repeats the same order (files execute, then SavedVariables, then
 -- ADDON_LOADED), so the panel would keep rebuilding itself in the client's
 -- language — including, absurdly, the language picker itself.
+-- The database counters are text too. They used to be written only in OnShow,
+-- so switching the language with the panel open relabelled everything except
+-- this block, which stayed in the old language until the panel was reopened.
+local function refreshStats()
+    local players = ns.Database and ns.Database:CountPlayers() or 0
+    local samples = ns.Database and ns.Database:CountSamples() or 0
+    local matches = (ns.Database and ns.Database.db
+                     and ns.Database.db.matches and ns.Database.db.matches.count) or 0
+    statsBody:SetText(
+        ("%s: |cffffffff%d|r\n%s: |cffffffff%d|r\n%s: |cffffffff%d|r"):format(
+            L["Players in DB"], players,
+            L["Samples"],       samples,
+            L["Matches"],       matches))
+end
+
 function panel:ApplyStrings()
     subtitle:SetText(L["OptionsSubtitle"])
     cbDebug.Text:SetText(L["OptDebug"])
@@ -539,12 +554,18 @@ function panel:ApplyStrings()
     cbMinimap.tooltipText = L["OptMinimapButtonTooltip"]
     linksBody:SetText(L["UploaderURL"] .. "\n" .. L["DiscordURL"])
     for _, row in ipairs(stepperRows) do row:RefreshText() end
+    -- Same story for the counters and the watchlist status line. Only while
+    -- the panel is up: before SavedVariables load there is nothing to count,
+    -- and watchTable() would create the very global the game is about to fill.
+    if self:IsShown() then
+        refreshStats()
+        refreshWatch()
+    end
 end
 local function applyStrings() panel:ApplyStrings() end
 
 -- ---- Refresh on show ------------------------------------------------
 panel:SetScript("OnShow", function()
-    applyStrings()
     cbDebug:SetChecked(ns.Database and ns.Database:GetSetting("debug") == true)
     -- Premade toggles default ON: only an explicit ``false`` unchecks them.
     cbPremade:SetChecked(not ns.Database or ns.Database:GetSetting("premadeAlert") ~= false)
@@ -556,17 +577,10 @@ panel:SetScript("OnShow", function()
     scaleRow:Refresh()
     columnsRow:Refresh()
 
-    local players = ns.Database and ns.Database:CountPlayers() or 0
-    local samples = ns.Database and ns.Database:CountSamples() or 0
-    local matches = (ns.Database and ns.Database.db
-                     and ns.Database.db.matches and ns.Database.db.matches.count) or 0
-    statsBody:SetText(
-        ("%s: |cffffffff%d|r\n%s: |cffffffff%d|r\n%s: |cffffffff%d|r"):format(
-            L["Players in DB"], players,
-            L["Samples"],       samples,
-            L["Matches"],       matches))
     versionTxt:SetText(("v%s"):format(ns.VERSION or "?"))
-    refreshWatch()
+    -- Last, so the counters and the watchlist are drawn in the current
+    -- language (ApplyStrings refreshes both while the panel is shown).
+    applyStrings()
 end)
 
 -- ---- Register with the modern Settings API -------------------------
