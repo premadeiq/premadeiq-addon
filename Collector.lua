@@ -1182,6 +1182,10 @@ function Collector:SnapshotMatch(statsSecret)
         -- nil when no number was ever shown: setting off, too few known
         -- players, not an Epic, or a /reload before the gates opened.
         forecast      = ctx.forecast,
+        -- Who recorded this (addon >= 0.9.55): our own character. The server
+        -- otherwise has to guess it from how often a character turns up on
+        -- the uploader's boards, and a duo partner turns up just as often.
+        selfGUID      = UnitGUID("player"),
     })
 
     if ns.Deserter then ns.Deserter:Reset() end

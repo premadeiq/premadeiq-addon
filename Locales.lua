@@ -183,10 +183,10 @@ local en = {
     -- retyped by hand, which a ?from= parameter would not. The server
     -- redirects it to /install. Do NOT "fix" it back, and do not put
     -- /go in any other channel: exclusivity is the whole signal.
-    ["UploaderURL"]    = "Uploader download:\nhttps://premadeiq.duckdns.org/go",
+    ["UploaderURL"]    = "Uploader download:\nhttps://premade.online/go",
     -- Bare address for the copy box: the line above carries a caption and a
     -- newline, which an edit box would show verbatim.
-    ["UploaderURLBare"] = "https://premadeiq.duckdns.org/go",
+    ["UploaderURLBare"] = "https://premade.online/go",
     -- Title of the copy box. Deliberately English everywhere, like the rest
     -- of the copy-out flow (see INTENTIONALLY_EN).
     ["UploaderCopyTitle"] = "Ctrl+C to copy, then open it in your browser:",
@@ -318,7 +318,7 @@ local ruRU = {
         .. "Пять боёв за неделю открывают остальной сайт: поиск игрока,\n"
         .. "разбор матчей, вражеские лидеры. Тоже бесплатно, без подписки.\n"
         .. "Команда /piq uploader покажет ссылку ещё раз.",
-    ["UploaderURL"]    = "Скачать Uploader:\nhttps://premadeiq.duckdns.org/go",
+    ["UploaderURL"]    = "Скачать Uploader:\nhttps://premade.online/go",
     ["DiscordURL"]     = "Discord: https://discord.gg/KGPKRWt4MG",
 
     ["Got it"]         = "Понятно",
@@ -390,7 +390,7 @@ local deDE = {
         .. "Fünf pro Woche öffnen den Rest der Seite: Spielersuche,\n"
         .. "Match-Analysen, feindliche Anführer. Ebenfalls kostenlos.\n"
         .. "Mit /piq uploader siehst du den Link erneut.",
-    ["UploaderURL"]    = "Uploader herunterladen:\nhttps://premadeiq.duckdns.org/go",
+    ["UploaderURL"]    = "Uploader herunterladen:\nhttps://premade.online/go",
     ["DiscordURL"]     = "Discord: https://discord.gg/KGPKRWt4MG",
 
     ["Got it"]         = "Verstanden",
@@ -500,7 +500,7 @@ local frFR = {
         .. "Cinq par semaine ouvrent le reste du site : recherche de joueur,\n"
         .. "analyse des matchs, leaders adverses. Gratuit aussi.\n"
         .. "La commande /piq uploader réaffiche le lien.",
-    ["UploaderURL"]    = "Télécharger l'Uploader :\nhttps://premadeiq.duckdns.org/go",
+    ["UploaderURL"]    = "Télécharger l'Uploader :\nhttps://premade.online/go",
     ["DiscordURL"]     = "Discord : https://discord.gg/KGPKRWt4MG",
 
     ["Got it"]         = "Compris",
@@ -610,7 +610,7 @@ local esES = {
         .. "Cinco por semana abren el resto del sitio: búsqueda de jugador,\n"
         .. "análisis de partidas, líderes enemigos. También gratis.\n"
         .. "El comando /piq uploader vuelve a mostrar el enlace.",
-    ["UploaderURL"]    = "Descargar Uploader:\nhttps://premadeiq.duckdns.org/go",
+    ["UploaderURL"]    = "Descargar Uploader:\nhttps://premade.online/go",
     ["DiscordURL"]     = "Discord: https://discord.gg/KGPKRWt4MG",
 
     ["Got it"]         = "Entendido",
@@ -781,7 +781,7 @@ local itIT = {
     ["PremadeMembers"]             = "Membri premade",
     ["PremadeNone"]                = "Nessun capo premade noto in questa partita",
     ["Samples"]                    = "righe",
-    ["UploaderURL"]                = "Download dell'Uploader:\nhttps://premadeiq.duckdns.org/go",
+    ["UploaderURL"]                = "Download dell'Uploader:\nhttps://premade.online/go",
     ["WelcomeBody"]                = "PremadeIQ registra le statistiche dei BG epici nei tuoi SavedVariables.\n\nGli avvisi sui premade restano muti finché non ti colleghi: l'elenco dei premade noti è un dato della comunità e arriva con l'Uploader.\n\n  1. Installa PremadeIQ Uploader (basta un account Discord — non devi entrare da nessuna parte)\n  2. Gioca un BG epico e lascialo caricare\n\nUn BG epico portato a termine a settimana tiene tutto aperto: avvisi sui premade, classifica completa, disertori. Gratis.\n\nCinque a settimana aprono il resto del sito: ricerca giocatore, analisi delle partite, capi nemici. Anche questo gratis.\nUsa /piq uploader per rivedere il link.",
     ["WelcomeTitle"]               = "PremadeIQ installato!",
     ["CmdHelp"]                    = "|cff33ff99PremadeIQ|r comandi:\n  /piq status           — mostra la dimensione del database\n  /piq uploader         — mostra il link di download dell'Uploader\n  /piq snapshot         — forza l'acquisizione (in campo di battaglia)\n  /piq premade          — controlla i premade noti nella squadra avversaria\n  /piq copy             — copia l'ultimo avviso premade per la chat\n  /piq debug on|off     — attiva o disattiva il debug\n  /piq reset confirm    — cancella il database\n  /piq version          — mostra la versione",

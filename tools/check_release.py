@@ -110,6 +110,7 @@ FORBIDDEN_CONTENT = (
     (re.compile(r"состояние стримится|лайв-стриминг позиций", re.I),
      "raid-streaming reference (removed feature, ru)"),
     (re.compile(r"duckdns", re.I), "server hostname leak (duckdns)"),
+    (re.compile(r"premade\.online", re.I), "site hostname outside the allowed links"),
     (re.compile(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"), "IPv4 address leak"),
     (re.compile(r"Kholodilin", re.I), "owner real-name leak"),
 )
@@ -128,9 +129,10 @@ TEXT_SUFFIXES = (".lua", ".md", ".toc", ".xml", ".txt", ".yml", ".yaml")
 # two words — /installer or /goodies would still read as a leak.
 # The host on its own, any other path, and a scheme-less mention all still
 # fail — the exception exists to ship working links to players, not to
-# unlock the hostname.
+# unlock the hostname. Two hosts since 2026-10-04: premade.online is the
+# public address, the old one still answers (and forwards to it).
 ALLOWED_URL_RE = re.compile(
-    r"https://premadeiq\.duckdns\.org/(?:install|go)"
+    r"https://(?:premadeiq\.duckdns\.org|premade\.online)/(?:install|go)"
     r"(?![A-Za-z0-9_-])[^\s\"'<>)]*")
 
 

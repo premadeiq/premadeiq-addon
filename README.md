@@ -37,7 +37,7 @@ against and stays quiet.
 
 1. Install **PremadeIQ Uploader** — a separate app that reads your
    `SavedVariables` and sends the statistics to the PremadeIQ server.
-   [Install guide](https://premadeiq.duckdns.org/install)
+   [Install guide](https://premade.online/install)
 2. Sign in with Discord (any Discord account — you don't have to join a
    server), play one Epic BG, and type `/reload` or log out so the game
    writes the match to disk.

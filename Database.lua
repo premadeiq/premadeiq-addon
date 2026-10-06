@@ -194,6 +194,10 @@ function Database:IncrementMatch(info)
         -- rows and known players per side, the percentage shown. nil when no
         -- number was shown. See Collector:RecordForecast.
         forecast      = info.forecast,
+        -- Our own character's GUID (addon >= 0.9.55): which row of this board
+        -- is the uploader. Game data only, like every other guid here. nil
+        -- from older clients.
+        selfGUID      = info.selfGUID,
     })
     while #self.db.matchLog > MAX_MATCH_LOG do
         table.remove(self.db.matchLog, 1)
