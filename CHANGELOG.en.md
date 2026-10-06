@@ -8,8 +8,9 @@ All notable changes are documented here. Format — [Keep a Changelog](https://k
 - **"My place" in the rankings is more accurate.** The site no longer mixes
   you up with the friend you queue with, and finds your place sooner after
   your first battles.
-- **The Uploader download link points to the site's new address:**
-  https://premade.online/go. The old address still works and forwards there.
+- **The Uploader download link points to the site's new address.** Install
+  guide: https://premade.online/install. The old address still works and
+  forwards there.
 
 ## [0.9.54] — 2026-10-04
 
