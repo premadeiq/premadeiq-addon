@@ -5,12 +5,9 @@ All notable changes are documented here. Format — [Keep a Changelog](https://k
 ## [0.9.55] — 2026-10-06
 
 ### Changed
-- **A battle record now says which character is you.** The site used to work
-  it out from how often a character turns up in your uploads, and the friend
-  you queue with turns up just as often. Now the addon marks its own
-  character: "my place" in the rankings finds you from your first battle, and
-  your duo partner is no longer taken for you. Only the in-game character id
-  is sent — like everything else on the scoreboard.
+- **"My place" in the rankings is more accurate.** The site no longer mixes
+  you up with the friend you queue with, and finds your place sooner after
+  your first battles.
 - **The Uploader download link points to the site's new address:**
   https://premade.online/go. The old address still works and forwards there.
 
