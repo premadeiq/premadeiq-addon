@@ -3,6 +3,10 @@ local ADDON, ns = ...
 local Core = {}
 ns.PremadeTargetsCore = Core
 
+-- People of one mercenary crew (catalog `merc_crews`) on one side before the
+-- side counts as that crew: fewer is a coincidence, not a group.
+Core.CREW_MIN = 4
+
 local function validName(name)
     return type(name) == "string" and name ~= "" and not name:find("[\r\n]")
 end
@@ -385,6 +389,23 @@ function Core.BuildCatalogIndex(catalog, realm)
         end
     end
 
+    -- Mercenary crews with no known leader (catalog rev 8): people who keep
+    -- entering battles as mercenaries together. A crew is a key, never a
+    -- group label — nobody in it is anybody's "leader". Through getEntry for
+    -- the same reason as raid leads; the first crew to claim a name keeps it.
+    if type(catalog.merc_crews) == "table" then
+        for _, crew in ipairs(catalog.merc_crews) do
+            if type(crew) == "table" and crew.id ~= nil and type(crew.members) == "table" then
+                for _, member in ipairs(crew.members) do
+                    if type(member) == "table" then
+                        local entry = getEntry(member.name)
+                        if entry and entry.crewId == nil then entry.crewId = crew.id end
+                    end
+                end
+            end
+        end
+    end
+
     for _, entry in pairs(index) do
         table.sort(entry.groups)
         entry._groupSet = nil
@@ -452,22 +473,26 @@ function Core.FilterRoster(rows, catalogIndex, mySide, realm, myCanonicalName,
                     -- Known to the catalog at all? Drives the row's label: a
                     -- watch-only row must not be captioned "premade member".
                     inCatalog = catalogEntry and true or false,
+                    -- In a mercenary crew (catalog `merc_crews`); kept only
+                    -- where enough of the crew stand on one side.
+                    crewId = catalogEntry and catalogEntry.crewId or nil,
                 }
             end
         end
     end
 
+    players = Core.ApplyCrewThreshold(players)
     Core.AssignBlocks(players)
 
     -- Enemies first (the side you act on), then your own team. Inside a side,
-    -- each premade sits together as a block, biggest first, then the watched
-    -- guilds; everyone outside a block comes last. Leaders head their block,
-    -- maybes close it, the rest stay alphabetical so the grid does not
-    -- reshuffle between scans.
-    local KIND_RANK = { premade = 1, guild = 2 }
+    -- each premade sits together as a block, biggest first, then the mercenary
+    -- crews, then the watched guilds; everyone outside a block comes last.
+    -- Leaders head their block, maybes close it, the rest stay alphabetical so
+    -- the grid does not reshuffle between scans.
+    local KIND_RANK = { premade = 1, crew = 2, guild = 3 }
     table.sort(players, function(a, b)
         if a.side ~= b.side then return a.side == "enemy" end
-        local ra, rb = KIND_RANK[a.blockKind] or 3, KIND_RANK[b.blockKind] or 3
+        local ra, rb = KIND_RANK[a.blockKind] or 4, KIND_RANK[b.blockKind] or 4
         if ra ~= rb then return ra < rb end
         if a.block ~= b.block then
             if a.blockSize ~= b.blockSize then return a.blockSize > b.blockSize end
@@ -502,6 +527,58 @@ end
 --
 -- Sets `block` (label or nil), `blockKind` ("premade" | "guild" | nil) and
 -- `blockSize` on every player.
+-- A crew counts on a side only with CREW_MIN of its people there. Below that,
+-- their crew mark goes, and a row that was listed for the crew alone (no
+-- premade tie, no raid-lead mark, not on the owner's lists) goes with it.
+function Core.ApplyCrewThreshold(players, minimum)
+    if type(players) ~= "table" then return players end
+    minimum = minimum or Core.CREW_MIN
+    local counts = { enemy = {}, ally = {} }
+    for _, p in ipairs(players) do
+        if p.crewId ~= nil then
+            local c = counts[p.side == "ally" and "ally" or "enemy"]
+            c[p.crewId] = (c[p.crewId] or 0) + 1
+        end
+    end
+    local kept = {}
+    for _, p in ipairs(players) do
+        if p.crewId ~= nil
+                and (counts[p.side == "ally" and "ally" or "enemy"][p.crewId] or 0) < minimum then
+            p.crewId = nil
+            local other = (p.groups and #p.groups > 0)
+                       or (p.likelyGroups and #p.likelyGroups > 0)
+                       or p.isLeader or p.isRaidLead or p.isWatched or p.watchGuild
+            if other then kept[#kept + 1] = p end
+        else
+            kept[#kept + 1] = p
+        end
+    end
+    return kept
+end
+
+-- Crews on the ENEMY side with at least CREW_MIN people, by crewId and not by
+-- block: a crew member who is also a "likely" member of a premade sits in the
+-- premade's block but still counts here. { {id = ..., n = ...}, ... }
+function Core.CrewHits(players, minimum)
+    minimum = minimum or Core.CREW_MIN
+    local n, order = {}, {}
+    for _, p in ipairs(players or {}) do
+        if p.side == "enemy" and p.crewId ~= nil then
+            if not n[p.crewId] then order[#order + 1] = p.crewId end
+            n[p.crewId] = (n[p.crewId] or 0) + 1
+        end
+    end
+    local hits = {}
+    for _, id in ipairs(order) do
+        if n[id] >= minimum then hits[#hits + 1] = { id = id, n = n[id] } end
+    end
+    table.sort(hits, function(a, b)
+        if a.n ~= b.n then return a.n > b.n end
+        return tostring(a.id) < tostring(b.id)
+    end)
+    return hits
+end
+
 local function blockLabels(p)
     if p.groups and #p.groups > 0 then return p.groups end
     return p.likelyGroups or {}
@@ -530,7 +607,11 @@ function Core.AssignBlocks(players)
             end
         end
         p.block, p.blockKind = best, best and "premade" or nil
-        if not best and p.watchGuild then
+        -- A crew after the premades: a premade tie says more about this match.
+        if not best and p.crewId ~= nil then
+            p.block, p.blockKind = p.crewId, "crew"
+        end
+        if not p.block and p.watchGuild then
             p.block, p.blockKind = p.watchGuild, "guild"
         end
         if p.block then

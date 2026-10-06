@@ -2,6 +2,15 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.56] — 2026-10-06
+
+### Added
+- **A warning about a possible premade with no known leader.** When the enemy
+  team holds a group of mercenaries who keep entering battles together, the
+  addon shows a banner and a chat line, and the players panel gives the group
+  a "Mercenary group" block of its own. Works with Uploader 0.9.14 or newer;
+  the same switch as the other premade warnings turns it on and off.
+
 ## [0.9.55] — 2026-10-06
 
 ### Changed

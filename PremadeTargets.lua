@@ -153,6 +153,8 @@ local function labelText(player)
               -- Below a confirmed member and below an owner-made raid-lead
               -- mark: both of those are things we know, this one is a maybe.
               or (player.isLikely and not inPremade and LIKELY_MARK)
+              -- In a mercenary crew only: a maybe as well, same mark.
+              or (player.crewId and not inPremade and not player.isLeader and LIKELY_MARK)
               or ((player.isWatched or player.watchGuild) and not player.inCatalog and WATCH_MARK)
               or ""
     local name = displayName(player.name)
@@ -286,6 +288,8 @@ local function showTooltip(button)
         caption = L["PremadeTargetRaidLead"]
     elseif player.isLikely then
         caption = L["PremadeTargetLikely"]
+    elseif player.crewId then
+        caption = L["PremadeTargetCrew"]
     elseif player.isWatched then
         caption = L["PremadeTargetWatched"]
     else
@@ -861,7 +865,10 @@ function Targets:ApplyPlayers(players)
                     local blockHeader = self:BlockHeader(blockIndex)
                     blockHeader:ClearAllPoints()
                     blockHeader:SetPoint("TOPLEFT", self._body, "TOPLEFT", self.PANEL_PADDING + 2, -y)
-                    if run.kind == "guild" then
+                    if run.kind == "crew" then
+                        -- A crew has no leader to name: just how many are here.
+                        blockHeader:SetText(L["PremadeTargetsCrewBlock"]:format(#run.players))
+                    elseif run.kind == "guild" then
                         -- A guild name is not a character name: no Ambiguate,
                         -- no realm to strip.
                         blockHeader:SetText(L["PremadeTargetsGuildBlock"]:format(run.block, #run.players))
@@ -1268,6 +1275,10 @@ function Targets:RefreshFromScoreboard(force, requestData)
     )
     self._scanning = false
     if not ok then return false end
+    -- The crew warning rides on this scan: same rows, same side reading
+    -- (GetBattlefieldArenaFaction, right for a mercenary viewer too), and it
+    -- runs whether or not the panel is shown.
+    if ns.MercCrewAlert then pcall(ns.MercCrewAlert.OnPlayers, ns.MercCrewAlert, players) end
     return self:ApplyPlayers(players)
 end
 
@@ -1394,6 +1405,7 @@ eventFrame:SetScript("OnEvent", function(_, event, arg1)
         -- PLAYER_LEAVING_WORLD is not usable here: it fires before the
         -- destination is known, so cancelling on it would kill a live match's
         -- timers during an ordinary loading screen.
+        if ns.MercCrewAlert then ns.MercCrewAlert:Reset() end
         if C_PvP and C_PvP.IsBattleground and C_PvP.IsBattleground() then
             Targets:ScheduleStartupBurst()
             Targets:StartTicker()
@@ -1403,6 +1415,7 @@ eventFrame:SetScript("OnEvent", function(_, event, arg1)
             Targets:RefreshFromScoreboard(true, false)
         end
     elseif event == "PVP_MATCH_ACTIVE" then
+        if ns.MercCrewAlert then ns.MercCrewAlert:Reset() end
         Targets._lastScanAt = 0
         Targets._lastRequestAt = 0
         Targets:ResetForecast()
@@ -1416,6 +1429,9 @@ eventFrame:SetScript("OnEvent", function(_, event, arg1)
     elseif event == "PLAYER_REGEN_ENABLED" then
         Targets:OnPlayerRegenEnabled()
     elseif event == "PVP_MATCH_COMPLETE" then
+        -- The scoreboard keeps updating on the results screen; the crew
+        -- warning must not go off again there.
+        if ns.MercCrewAlert then ns.MercCrewAlert:Finish() end
         Targets:Reset()
     end
 end)
