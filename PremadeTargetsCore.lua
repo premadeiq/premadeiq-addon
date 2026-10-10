@@ -699,6 +699,8 @@ end
 --                  the two sides rather than the row count, because one half
 --                  filling while the other empties leaves a total unmoved
 --   haveForecast   whether a number already exists
+--   gatesOpen      false while the battle has not started; nil = unknown,
+--                  treated as open (the pre-0.9.57 behaviour)
 --
 -- Returns: recompute, lockIfForecast, peak, stable.
 --
@@ -706,13 +708,35 @@ end
 -- freeze is only known AFTER the recompute, and freezing an empty forecast
 -- would end the match with no number at all.
 Core.FORECAST_STABLE_SCANS = 8
+-- Scans right after the gates during which a smaller board is the start
+-- reshuffling (deserters leave at the gates), not the roster draining away:
+-- recompute on it instead of freezing the last pre-gate number. Carried as a
+-- NEGATIVE `stable` so the caller keeps remembering just two numbers.
+Core.FORECAST_GATE_WARMUP = 3
 
-function Core.ForecastScanGate(peak, stable, seen, haveForecast)
+function Core.ForecastScanGate(peak, stable, seen, haveForecast, gatesOpen)
     peak, stable = peak or 0, stable or 0
+
+    if gatesOpen == false then
+        -- Before the gates the board is still being assembled: people load in,
+        -- drop out of the queue and are replaced. A number frozen there was
+        -- right 63% of the time against 69% for one frozen in the first two
+        -- minutes (live records, 570 battles, 10.10.2026). Keep it live and
+        -- track the board as it stands; after the gates a short warm-up
+        -- (FORECAST_GATE_WARMUP) comes before the quiet count.
+        return true, false, seen, -Core.FORECAST_GATE_WARMUP
+    end
 
     if seen > peak then
         -- Still filling: nothing is settled, so keep recomputing.
         return true, false, seen, 0
+    end
+
+    if seen < peak and stable < 0 then
+        -- Shrinking inside the warm-up: the gates just opened and the start is
+        -- still settling. Follow the board down and recompute; never freeze
+        -- the pre-gate number here.
+        return true, false, seen, stable + 1
     end
 
     if seen < peak then

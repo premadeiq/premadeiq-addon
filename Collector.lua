@@ -271,7 +271,29 @@ local function battleEngaged()
     if engaged == nil then return nil end
     local ok, state = pcall(C_PvP.GetActiveMatchState)
     if not ok or type(state) ~= "number" then return nil end
+    -- A secret value errors on comparison; "can't say" is the honest answer.
+    if issecretvalue and issecretvalue(state) then return nil end
     return state >= engaged
+end
+
+-- Have the gates opened? true / false, or nil when neither the match state nor
+-- the battle clock can say. The odds line uses it to stay live through the prep
+-- phase (PremadeTargets:UpdateForecast); nil there keeps the old behaviour.
+-- EITHER sign is enough to call them open: a state API that never reaches
+-- Engaged on some battleground must not keep the odds line live all match.
+function Collector.GatesOpen()
+    local engaged = battleEngaged()
+    if engaged == true then return true end
+    local dur
+    if C_PvP and C_PvP.GetActiveMatchDuration then
+        local ok, v = pcall(C_PvP.GetActiveMatchDuration)
+        if ok and type(v) == "number" and not (issecretvalue and issecretvalue(v)) then
+            dur = v
+        end
+    end
+    if dur ~= nil and dur > 0 then return true end
+    if engaged == false or dur ~= nil then return false end
+    return nil
 end
 
 -- Start of the BATTLE, or nil while it has not begun.
@@ -581,7 +603,8 @@ function Collector:RecordForecast(f, side, reason, boardUs, boardThem)
                             and C_PvP.GetActiveMatchDuration())
     local stats = PremadeIQ_PlayerStats
     ctx.forecast = {
-        ageSec      = age and math.floor(age) or nil,   -- 0 = before the gates
+        -- 0 = before the gates; from 0.9.57 only when the gates could not be read
+        ageSec      = age and math.floor(age) or nil,
         side        = (side == 0 or side == 1) and side or nil,
         pct         = plainNumber(f.us),
         rowsUs      = plainNumber(f.ourN),     rowsThem  = plainNumber(f.theirN),

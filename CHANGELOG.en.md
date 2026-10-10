@@ -2,6 +2,14 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.57] — 2026-10-10
+
+### Changed
+- **The odds line now settles after the gates open.** Before the battle starts
+  the teams are still changing: players load in, drop out of the queue and are
+  replaced. The odds keep updating until the gates and settle on the roster
+  that actually starts the battle.
+
 ## [0.9.56] — 2026-10-06
 
 ### Added

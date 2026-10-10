@@ -1125,9 +1125,21 @@ function Targets:UpdateForecast(rows, side)
 
     local before = self._forecast
     local seen, peakBefore = sidesSeen(rows), self._forecastPeakRows or 0
+    -- Under pcall: an error here would leave `_scanning` set and block every
+    -- later scan until /reload. Three minutes after the first scan count the
+    -- gates as open whatever the APIs say: an odds line kept live all match
+    -- creeps toward an outcome already visible on the map.
+    local collector, gatesOpen = ns.Collector, nil
+    if collector and collector.GatesOpen then
+        local ok, v = pcall(collector.GatesOpen)
+        if ok then gatesOpen = v end
+    end
+    local now = GetTime and GetTime() or 0
+    self._forecastFirstScanAt = self._forecastFirstScanAt or now
+    if gatesOpen == false and now - self._forecastFirstScanAt > 180 then gatesOpen = true end
     local recompute, lockIfForecast, peak, stable = ns.PremadeTargetsCore.ForecastScanGate(
         self._forecastPeakRows, self._forecastStable,
-        seen, self._forecast ~= nil)
+        seen, self._forecast ~= nil, gatesOpen)
     self._forecastPeakRows, self._forecastStable = peak, stable
 
     if recompute then
@@ -1158,6 +1170,7 @@ function Targets:ResetForecast()
     self._forecastLocked = nil
     self._forecastPeakRows = nil
     self._forecastStable = nil
+    self._forecastFirstScanAt = nil
     self._signature = nil
 end
 
