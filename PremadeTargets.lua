@@ -839,13 +839,11 @@ function Targets:ApplyPlayers(players)
         local runs = #list > 0 and splitBlocks(list) or {}
         local headed = #runs > 1 or (runs[1] ~= nil and runs[1].block ~= nil)
         if #list > 0 and index < self.MAX_BUTTONS then
-            -- With block headings the section line is dropped: the headings
-            -- carry the side's colour, and the panel header already has the
-            -- counts. It stays for a side with no blocks, which has nothing
-            -- else to say which team this is.
-            if headed then
-                if sectionHeader then sectionHeader:Hide() end
-            elseif sectionHeader then
+            -- The section line is ALWAYS drawn, blocks or not. From 0.9.52 to
+            -- 0.9.57 it gave way to the block headings, leaving only their
+            -- colour to tell the teams apart — and with mercenary groups as
+            -- blocks too (0.9.56) the split looked gone (owner, 11.10.2026).
+            if sectionHeader then
                 sectionHeader:ClearAllPoints()
                 sectionHeader:SetPoint("TOPLEFT", self._body, "TOPLEFT", self.PANEL_PADDING, -y)
                 if side == "ally" then
@@ -855,7 +853,7 @@ function Targets:ApplyPlayers(players)
                 end
                 sectionHeader:Show()
             end
-            if not headed then y = y + self.SECTION_HEADER_HEIGHT end
+            y = y + self.SECTION_HEADER_HEIGHT
 
             local ally = side == "ally"
             for r, run in ipairs(runs) do
@@ -864,7 +862,8 @@ function Targets:ApplyPlayers(players)
                     blockIndex = blockIndex + 1
                     local blockHeader = self:BlockHeader(blockIndex)
                     blockHeader:ClearAllPoints()
-                    blockHeader:SetPoint("TOPLEFT", self._body, "TOPLEFT", self.PANEL_PADDING + 2, -y)
+                    -- Indented under the section line it now sits beneath.
+                    blockHeader:SetPoint("TOPLEFT", self._body, "TOPLEFT", self.PANEL_PADDING + 8, -y)
                     if run.kind == "crew" then
                         -- A crew has no leader to name: just how many are here.
                         blockHeader:SetText(L["PremadeTargetsCrewBlock"]:format(#run.players))
@@ -877,8 +876,8 @@ function Targets:ApplyPlayers(players)
                     else
                         blockHeader:SetText(L["PremadeTargetsBlockRest"]:format(#run.players))
                     end
-                    -- Side colours of the section line it replaces; the rest
-                    -- are dimmer, being nobody's premade.
+                    -- Side colours of the section line above; the rest are
+                    -- dimmer, being nobody's premade.
                     local k = run.block and 1 or 0.7
                     if ally then
                         blockHeader:SetTextColor(0.55 * k, 0.75 * k, 1 * k)

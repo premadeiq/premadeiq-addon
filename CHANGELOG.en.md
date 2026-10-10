@@ -2,6 +2,14 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.58] — 2026-10-11
+
+### Fixed
+- **The players panel shows which team is which again.** The "Enemy team" and
+  "Your team" lines are now always shown, with the premade, mercenary-group and
+  guild blocks beneath them. Before, a block hid the team line and only the
+  colour told the teams apart.
+
 ## [0.9.57] — 2026-10-10
 
 ### Changed
