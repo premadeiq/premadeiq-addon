@@ -695,6 +695,16 @@ local function safeNum(v)
     return v
 end
 
+-- A level (honor level starts at 1), or nil when unreadable. Not safeNum: its
+-- 0 would read as a brand-new player in a team average. The secret check comes
+-- before any comparison — comparing a secret number is itself an error, and
+-- here it would kill the baseline capture or the whole final snapshot.
+local function posNum(v)
+    v = plainNumber(v)
+    if v == nil or v ~= v or v < 1 then return nil end
+    return math.floor(v)
+end
+
 -- Same guard for the one STRING we key data on. A secret value is truthy, so
 -- ``if info.guid then`` lets it straight through — the guid then becomes a
 -- table key and a payload field, and only the SavedVariables serializer drops
@@ -812,7 +822,11 @@ function Collector:TryCaptureBaseline()
     if SetBattlefieldScoreFaction then pcall(SetBattlefieldScoreFaction, -1) end
     if RequestBattlefieldScoreData then pcall(RequestBattlefieldScoreData) end
     local n = (GetNumBattlefieldScores and GetNumBattlefieldScores()) or 0
-    local rows, seen = { [0] = 0, [1] = 0 }, {}
+    -- Honor level rides along when it reads back plain (addon >= 0.9.59). It
+    -- carries no NeverSecret flag, so mid-match it may well be secret — the
+    -- per-side read counts say how often, which is the question this exists to
+    -- answer (docs/plans/2026-10-11-honor-level-from-scoreboard.md).
+    local rows, seen, hon, hRead = { [0] = 0, [1] = 0 }, {}, {}, { [0] = 0, [1] = 0 }
     for i = 1, n do
         local info = C_PvP.GetScoreInfo and C_PvP.GetScoreInfo(i)
         if info and (info.faction == 0 or info.faction == 1) then
@@ -820,6 +834,11 @@ function Collector:TryCaptureBaseline()
             if nm and not seen[nm] then
                 seen[nm] = info.faction
                 rows[info.faction] = rows[info.faction] + 1
+                local h = posNum(info.honorLevel)
+                if h then
+                    hon[nm] = h
+                    hRead[info.faction] = hRead[info.faction] + 1
+                end
             end
         end
     end
@@ -836,12 +855,16 @@ function Collector:TryCaptureBaseline()
 
     local players = {}
     for nm, faction in pairs(seen) do
-        players[#players + 1] = { n = nm, f = faction }
+        players[#players + 1] = { n = nm, f = faction, h = hon[nm] }
     end
     ctx.baseline = {
         ageSec  = math.floor(age),
         rowsH   = rows[0],
         rowsA   = rows[1],
+        -- Rows whose honor level was readable. Present at all = addon >= 0.9.59,
+        -- so the server can tell "secret" from "old client" without a version.
+        hReadH  = hRead[0],
+        hReadA  = hRead[1],
         players = players,
     }
     -- name → row, so the final snapshot can staple guids on in O(1).
@@ -1064,6 +1087,9 @@ function Collector:SnapshotMatch(statsSecret)
                 hk         = safeNum(info.honorableKills),
                 deaths     = safeNum(info.deaths),
                 honor      = safeNum(info.honorGained),
+                -- Honor LEVEL at the end of the match (addon >= 0.9.59); nil,
+                -- i.e. absent, when unreadable — never a fake 0.
+                honorLevel = posNum(info.honorLevel),
                 rating     = safeNum(info.rating),
                 ratingChange = safeNum(info.ratingChange),
                 role       = info.role,

@@ -2,6 +2,12 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.59] — 2026-10-11
+
+### Changed
+- **Groundwork for a more accurate odds line.** Internal changes that will help
+  make the odds line more accurate in coming versions. Nothing changes in game.
+
 ## [0.9.58] — 2026-10-11
 
 ### Fixed
