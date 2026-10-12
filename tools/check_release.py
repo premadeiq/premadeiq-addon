@@ -43,10 +43,13 @@ STUB = (
     "}\n"
 )
 
-FORBIDDEN_PATH = "PremadeIQ_Leader"
+# The leader add-on is owner-only; PremadeIQ_Data is the folder the Uploader
+# writes live data into next to the addon (2026-10-13) — never part of a release.
+FORBIDDEN_PATHS = ("PremadeIQ_Leader", "PremadeIQ_Data")
 KP_NAME = "KnownPremades.lua"
 US_NAME = "UploadState.lua"
 GM_NAME = "GuildMap.lua"
+PS_NAME = "PlayerStats.lua"
 
 
 def kp_violation(text: str) -> str | None:
@@ -85,6 +88,15 @@ def gm_violation(text: str) -> str | None:
         return "live guild map (generated_at != 0)"
     if re.search(r"\]\s*=\s*(\{\s*name|\d)", text):
         return "live guild map (entries present)"
+    return None
+
+
+def ps_violation(text: str) -> str | None:
+    """PlayerStats.lua must ship as the neutral stub: the live file holds a
+    winrate for every character the database has seen, gated behind
+    CONTRIBUTOR. Until 2026-10-13 nothing checked it."""
+    if re.search(r"generated_at\s*=\s*(?!0\b)\d+", text):
+        return "live winrate cache (generated_at != 0)"
     return None
 
 
@@ -167,7 +179,7 @@ def scan_tree(root: Path) -> list[str]:
     problems: list[str] = []
     for p in sorted(root.rglob("*")):
         rel = p.relative_to(root).as_posix()
-        if FORBIDDEN_PATH in rel:
+        if any(f in rel for f in FORBIDDEN_PATHS):
             problems.append(f"forbidden path: {rel}")
             continue
         if not p.is_file():
@@ -184,6 +196,10 @@ def scan_tree(root: Path) -> list[str]:
             why = gm_violation(p.read_text(encoding="utf-8", errors="replace"))
             if why:
                 problems.append(f"{rel}: {why}")
+        elif p.name == PS_NAME:
+            why = ps_violation(p.read_text(encoding="utf-8", errors="replace"))
+            if why:
+                problems.append(f"{rel}: {why}")
         elif _is_text(p.name) and not _skip_content(rel):
             why = content_violation(p.read_text(encoding="utf-8", errors="replace"))
             if why:
@@ -195,7 +211,7 @@ def scan_zip(z: Path) -> list[str]:
     problems: list[str] = []
     with zipfile.ZipFile(z) as zf:
         for name in zf.namelist():
-            if FORBIDDEN_PATH in name:
+            if any(f in name for f in FORBIDDEN_PATHS):
                 problems.append(f"{z.name}: forbidden path: {name}")
                 continue
             base = name.rsplit("/", 1)[-1]
@@ -209,6 +225,10 @@ def scan_zip(z: Path) -> list[str]:
                     problems.append(f"{z.name}!{name}: {why}")
             elif base == GM_NAME:
                 why = gm_violation(zf.read(name).decode("utf-8", errors="replace"))
+                if why:
+                    problems.append(f"{z.name}!{name}: {why}")
+            elif base == PS_NAME:
+                why = ps_violation(zf.read(name).decode("utf-8", errors="replace"))
                 if why:
                     problems.append(f"{z.name}!{name}: {why}")
             elif _is_text(base) and not _skip_content(name):

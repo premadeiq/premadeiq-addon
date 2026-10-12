@@ -88,6 +88,29 @@ ns.UploaderSeen = uploaderSeen
 
 local CATALOG_HINT_EVERY_SEC = 7 * 24 * 60 * 60
 
+-- Where the Uploader's data came from (DataSource.lua). The reason code is
+-- Blizzard's; the game already has it translated as ADDON_<code>.
+local function dataFolderLine()
+    local ds = ns.DataSource
+    if not ds then return nil end
+    if ds.loaded then return L["DataFolderOK"] end
+    if ds.reason == "MISSING" or ds.reason == "API" then return L["DataFolderMissing"] end
+    local why = ds.reason and _G["ADDON_" .. ds.reason] or ds.reason or "?"
+    return (L["DataFolderNotLoaded"]):format(why)
+end
+
+-- Once a week, only when the data folder exists but would not load even the
+-- way DataSource forces it (out of date, corrupt): the one case where the
+-- player has to act. A missing folder is just an older Uploader.
+local function maybeDataFolderHint()
+    local ds = ns.DataSource
+    if not ds or ds.loaded or ds.reason == "MISSING" or ds.reason == "API" then return end
+    local last = tonumber(ns.Database and ns.Database:GetSetting("dataFolderHintAt")) or 0
+    if time() - last < CATALOG_HINT_EVERY_SEC then return end
+    prnt("|cff888888" .. dataFolderLine() .. "|r")
+    if ns.Database then ns.Database:SetSetting("dataFolderHintAt", time()) end
+end
+
 -- One line on entering an Epic BG, at most once a week. Called from both
 -- entry points (match start and context restore after a /reload mid-match),
 -- so the timestamp is written next to the print, not by the caller.
@@ -192,6 +215,7 @@ f:SetScript("OnEvent", function(self, event, arg1, ...)
                 prnt((L["PremadeCatalogLoaded"]):format(n, tier or "?"))
             end
         end
+        maybeDataFolderHint()
 
     elseif event == "PLAYER_ENTERING_WORLD" then
         snapshotDone = false
@@ -351,6 +375,8 @@ local function cmdStatus()
             prnt((L["PremadeCatalogMissing"]):format(L["UploaderURLBare"]))
         end
     end
+    local dataLine = dataFolderLine()
+    if dataLine then prnt(dataLine) end
     -- Upload state on demand, for the same reason as the catalog line above:
     -- the passive hint only fires after days of silence and inside an Epic
     -- BG, which makes it impossible to check deliberately. Here it answers

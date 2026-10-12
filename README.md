@@ -1,7 +1,8 @@
 # PremadeIQ
 
 An addon that collects **Epic Battleground** statistics in World of Warcraft
-(Midnight 12.0.x) and lets you contribute to a shared community table.
+(Midnight 12.1, `## Interface: 120100`) and lets you contribute to a shared
+community table.
 
 ## What it does
 
@@ -57,7 +58,9 @@ local.
 | `/piq uploader` | link to download the Uploader and the Discord |
 | `/piq snapshot` | manual snapshot (in a BG only) |
 | `/piq premade` | check the current enemy team against community data |
+| `/piq odds` (or `/piq forecast`) | win chances for the current match (Epic BG only) |
 | `/piq copy` | copy the last notice for chat |
+| `/piq options` (or `config`, `settings`) | open the options panel |
 | `/piq debug on\|off` | debug mode |
 | `/piq reset confirm` | wipe the local database |
 | `/piq version` | addon version |

@@ -2,6 +2,17 @@
 
 All notable changes are documented here. Format — [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning — [SemVer](https://semver.org/).
 
+## [0.9.60] — 2026-10-13
+
+### Fixed
+- **The premade panel and the odds line work right after an addon update.** The
+  data comes from the PremadeIQ Data folder, which updates leave alone (needs
+  Uploader 0.9.15).
+
+### Added
+- The settings, under "Local database", show whether premade and odds data are
+  loaded, and if not, that the Uploader is what brings them.
+
 ## [0.9.59] — 2026-10-11
 
 ### Changed

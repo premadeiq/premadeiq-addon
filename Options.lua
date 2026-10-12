@@ -511,6 +511,23 @@ watchBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 -- The database counters are text too. They used to be written only in OnShow,
 -- so switching the language with the panel open relabelled everything except
 -- this block, which stayed in the old language until the panel was reopened.
+-- Whether the premade catalog and the winrates behind the odds line are here.
+-- Both come only from the Uploader; without them the panel and the odds line
+-- stay silent and look broken, so say so where people look for answers.
+local function dataStatusLine()
+    local fresh = ns.Database and ns.Database.CatalogFreshness and ns.Database:CatalogFreshness()
+    local hasCatalog = fresh and (fresh.leaders or 0) > 0
+    local hasStats = ns.Forecast and ns.Forecast.UsableStats
+        and ns.Forecast.UsableStats(PremadeIQ_PlayerStats, time()) ~= nil
+    if hasCatalog and hasStats then
+        if fresh.ageDays then
+            return "|cff66dd66" .. (L["OptDataLoadedAge"]):format(fresh.ageDays) .. "|r"
+        end
+        return "|cff66dd66" .. L["OptDataLoaded"] .. "|r"
+    end
+    return "|cffffaa33" .. L["OptDataMissing"] .. "|r"
+end
+
 local function refreshStats()
     local players = ns.Database and ns.Database:CountPlayers() or 0
     local samples = ns.Database and ns.Database:CountSamples() or 0
@@ -520,7 +537,7 @@ local function refreshStats()
         ("%s: |cffffffff%d|r\n%s: |cffffffff%d|r\n%s: |cffffffff%d|r"):format(
             L["Players in DB"], players,
             L["Samples"],       samples,
-            L["Matches"],       matches))
+            L["Matches"],       matches) .. "\n" .. dataStatusLine())
 end
 
 function panel:ApplyStrings()
